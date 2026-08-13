@@ -1,0 +1,62 @@
+[
+  {
+    "name": "水稻",
+    "category": "谷物",
+    "sow_window": {"type": "term", "start": 5, "end": 7, "grace": 2},
+    "grow_seconds": 900,
+    "yield_base": 6,
+    "base_price": 20,
+    "description": "谷雨前后,种瓜点豆。",
+    "sort_order": 1
+  },
+  {
+    "name": "小麦",
+    "category": "谷物",
+    "sow_window": {"type": "term", "start": 19, "end": 21, "grace": 2},
+    "grow_seconds": 1200,
+    "yield_base": 5,
+    "base_price": 18,
+    "description": "秋分种麦正当时。",
+    "sort_order": 2
+  },
+  {
+    "name": "大豆",
+    "category": "谷物",
+    "sow_window": {"type": "term", "start": 9, "end": 11, "grace": 2},
+    "grow_seconds": 900,
+    "yield_base": 5,
+    "base_price": 16,
+    "description": "芒种前后种豆忙。",
+    "sort_order": 3
+  },
+  {
+    "name": "白菜",
+    "category": "蔬菜",
+    "sow_window": {"type": "term", "start": 18, "end": 20, "grace": 2},
+    "grow_seconds": 600,
+    "yield_base": 4,
+    "base_price": 12,
+    "description": "头伏萝卜二伏菜。",
+    "sort_order": 4
+  },
+  {
+    "name": "番茄",
+    "category": "蔬菜",
+    "sow_window": {"type": "term", "start": 6, "end": 8, "grace": 2},
+    "grow_seconds": 900,
+    "yield_base": 5,
+    "base_price": 15,
+    "description": "小暑番茄正当红。",
+    "sort_order": 5
+  },
+  {
+    "name": "菊花",
+    "category": "花卉",
+    "sow_window": {"type": "term", "start": 4, "end": 6, "grace": 2},
+    "grow_seconds": 1200,
+    "yield_base": 3,
+    "base_price": 25,
+    "description": "待到重阳日,还来就菊花。",
+    "sort_order": 6
+  }
+]

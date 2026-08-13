@@ -1,0 +1,11 @@
+[
+  {"code": "seed_rice", "name": "水稻种子", "category": "seed", "effect": {"type": "seed", "crop_name": "水稻"}, "buy_price": 25, "sell_price": 5, "sort_order": 1},
+  {"code": "seed_wheat", "name": "小麦种子", "category": "seed", "effect": {"type": "seed", "crop_name": "小麦"}, "buy_price": 22, "sell_price": 4, "sort_order": 2},
+  {"code": "seed_soybean", "name": "大豆种子", "category": "seed", "effect": {"type": "seed", "crop_name": "大豆"}, "buy_price": 20, "sell_price": 4, "sort_order": 3},
+  {"code": "seed_cabbage", "name": "白菜种子", "category": "seed", "effect": {"type": "seed", "crop_name": "白菜"}, "buy_price": 15, "sell_price": 3, "sort_order": 4},
+  {"code": "seed_tomato", "name": "番茄种子", "category": "seed", "effect": {"type": "seed", "crop_name": "番茄"}, "buy_price": 18, "sell_price": 4, "sort_order": 5},
+  {"code": "seed_chrysanthemum", "name": "菊花种子", "category": "seed", "effect": {"type": "seed", "crop_name": "菊花"}, "buy_price": 30, "sell_price": 6, "sort_order": 6},
+  {"code": "fertilizer", "name": "农家肥", "category": "fertilizer", "effect": {"type": "boost", "growth_pct": 50}, "buy_price": 50, "sell_price": 10, "sort_order": 7},
+  {"code": "water_pot", "name": "水壶", "category": "tool", "effect": {"type": "water", "amount": 100}, "buy_price": 30, "sell_price": 5, "sort_order": 8},
+  {"code": "term_card", "name": "节气卡", "category": "card", "effect": {"type": "term_lock", "lock_terms": 3}, "buy_price": 100, "sell_price": 20, "sort_order": 9}
+]

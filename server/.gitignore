@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 环境与数据
+.env
+*.db
+*.sqlite3
+
+# 测试与工具
+.pytest_cache/
+.coverage
+htmlcov/

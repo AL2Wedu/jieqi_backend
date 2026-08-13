@@ -1,0 +1,284 @@
+"""P0 数据模型(与 docs/02-数据库Schema设计.md 对应)。
+
+当前实现 SQLite 兼容:
+- UUID 用 sqlalchemy.Uuid(存 CHAR(32))
+- JSON 用 sqlalchemy.JSON(PostgreSQL 上可平滑切换 JSONB)
+- IP 用 String(45)
+"""
+import uuid
+from datetime import datetime, timezone
+
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    JSON,
+    SmallInteger,
+    String,
+    text,
+    UniqueConstraint,
+    Uuid,
+)
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
+
+def gen_uuid() -> uuid.UUID:
+    return uuid.uuid4()
+
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+class Base(DeclarativeBase):
+    pass
+
+
+# ---------- 账号与玩家 ----------
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    name: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    status: Mapped[int] = mapped_column(SmallInteger, default=1)
+    register_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    last_login_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Player(Base):
+    __tablename__ = "players"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), unique=True)
+    level: Mapped[int] = mapped_column(Integer, default=1)
+    exp: Mapped[int] = mapped_column(BigInteger, default=0)
+    coins: Mapped[int] = mapped_column(BigInteger, default=0)
+    head_title_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    unlocked_term_index: Mapped[int] = mapped_column(SmallInteger, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class CoinTransaction(Base):
+    __tablename__ = "coin_transactions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"))
+    amount: Mapped[int] = mapped_column(BigInteger)
+    reason: Mapped[str] = mapped_column(String(32))
+    ref_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+Index("idx_coin_tx_player", CoinTransaction.player_id, CoinTransaction.created_at.desc())
+
+
+# ---------- 头衔与成就 ----------
+
+class Title(Base):
+    __tablename__ = "titles"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    name: Mapped[str] = mapped_column(String(32))
+    icon: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    unlock_condition: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class UserTitle(Base):
+    __tablename__ = "user_titles"
+
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), primary_key=True)
+    title_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("titles.id"), primary_key=True)
+    unlocked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Achievement(Base):
+    __tablename__ = "achievements"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    name: Mapped[str] = mapped_column(String(64))
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    category: Mapped[str] = mapped_column(String(16))
+    target: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    reward: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class UserAchievement(Base):
+    __tablename__ = "user_achievements"
+
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), primary_key=True)
+    achievement_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("achievements.id"), primary_key=True)
+    progress: Mapped[dict] = mapped_column(JSON, default=dict)
+    completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ---------- 农田与作物 ----------
+
+class Farm(Base):
+    __tablename__ = "farms"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), unique=True)
+    name: Mapped[str] = mapped_column(String(32), default="我的农场")
+    plot_count: Mapped[int] = mapped_column(SmallInteger, default=6)
+    theme: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Plot(Base):
+    __tablename__ = "plots"
+    __table_args__ = (UniqueConstraint("farm_id", "idx", name="uq_plot_farm_idx"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    farm_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("farms.id"))
+    idx: Mapped[int] = mapped_column(SmallInteger)
+    soil_quality: Mapped[int] = mapped_column(SmallInteger, default=1)
+    locked: Mapped[bool] = mapped_column(Boolean, default=False)
+
+
+class Crop(Base):
+    __tablename__ = "crops"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    name: Mapped[str] = mapped_column(String(32))
+    category: Mapped[str] = mapped_column(String(16))
+    icon: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sow_window: Mapped[dict] = mapped_column(JSON, default=dict)
+    grow_seconds: Mapped[int] = mapped_column(Integer)
+    yield_base: Mapped[int] = mapped_column(Integer)
+    base_price: Mapped[int] = mapped_column(Integer)
+    unlock_level: Mapped[int] = mapped_column(SmallInteger, default=1)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class CropInstance(Base):
+    __tablename__ = "crop_instances"
+    # 一地一株(部分唯一索引):同一地块最多一个"未收获"作物;已收获的行保留为丰收记录
+    __table_args__ = (
+        Index(
+            "uq_crop_inst_active_plot",
+            "plot_id",
+            unique=True,
+            sqlite_where=text("harvested_at IS NULL"),
+            postgresql_where=text("harvested_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    plot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("plots.id"))
+    crop_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("crops.id"))
+    sowed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    sowed_term_index: Mapped[int] = mapped_column(SmallInteger)
+    stage: Mapped[int] = mapped_column(SmallInteger, default=1)
+    water_level: Mapped[int] = mapped_column(SmallInteger, default=100)
+    growth_progress: Mapped[int] = mapped_column(Integer, default=0)
+    predicted_harvest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    term_bonus_applied: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    harvested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    yield_actual: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    extra: Mapped[dict] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+Index("idx_crop_inst_plot", CropInstance.plot_id)
+
+
+# ---------- 道具系统 ----------
+
+class Item(Base):
+    __tablename__ = "items"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    code: Mapped[str] = mapped_column(String(32), unique=True)
+    name: Mapped[str] = mapped_column(String(32))
+    category: Mapped[str] = mapped_column(String(16))
+    icon: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    stackable: Mapped[bool] = mapped_column(Boolean, default=True)
+    max_stack: Mapped[int] = mapped_column(Integer, default=999)
+    effect: Mapped[dict] = mapped_column(JSON, default=dict)
+    buy_price: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    sell_price: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    unlock_level: Mapped[int] = mapped_column(SmallInteger, default=1)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserItem(Base):
+    __tablename__ = "user_items"
+
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), primary_key=True)
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("items.id"), primary_key=True)
+    quantity: Mapped[int] = mapped_column(Integer, default=0)
+    extra: Mapped[dict] = mapped_column(JSON, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class ItemTransaction(Base):
+    __tablename__ = "item_transactions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"))
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("items.id"))
+    delta: Mapped[int] = mapped_column(Integer)
+    reason: Mapped[str] = mapped_column(String(32))
+    ref_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+Index("idx_item_tx_player", ItemTransaction.player_id, ItemTransaction.created_at.desc())
+
+
+# ---------- 节气轮转时钟 ----------
+
+class TermConfig(Base):
+    __tablename__ = "term_config"
+
+    term_index: Mapped[int] = mapped_column(SmallInteger, primary_key=True)
+    name: Mapped[str] = mapped_column(String(8))
+    icon: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    duration_seconds: Mapped[int] = mapped_column(Integer, default=300)
+    sort_order: Mapped[int] = mapped_column(SmallInteger)
+
+
+class GameClock(Base):
+    __tablename__ = "game_clock"
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, default=1)
+    epoch: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    time_scale: Mapped[float] = mapped_column(Float, default=1.0)
+    paused_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class GameConfig(Base):
+    __tablename__ = "game_config"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    value: Mapped[dict | list | str | int | float | bool | None] = mapped_column(JSON)
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
