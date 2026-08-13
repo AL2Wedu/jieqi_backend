@@ -130,6 +130,8 @@ def default_art(slug: str) -> dict:
 
 # ---------- Pillow 预渲染(多分辨率 PNG,与 SVG 同款形状) ----------
 
+from PIL import Image  # noqa: E402
+
 PRERENDER_SIZES = (32, 64, 128, 256)
 
 _LEAF = "#7cb342"
@@ -237,13 +239,28 @@ def render_png(slug: str, stage: str, size: int) -> bytes:
 
 
 def ensure_prerendered(slug: str) -> None:
-    """确保某个作物的多分辨率 PNG 已预渲染(无则补渲染)。"""
+    """确保某个作物的多分辨率 PNG 已预渲染(无则补渲染)。
+
+    素材来源优先级:同名 PNG(真实美术素材,按目标宽度等比缩放)→ SVG(程序生成,方形渲染)。
+    """
     d = ART_ROOT / slug
     for stage in ("seed", "1", "2", "3"):
+        src_png = d / f"{stage}.png"
+        src_svg = d / f"{stage}.svg"
+        if not src_png.exists() and not src_svg.exists() and stage == "seed":
+            # seed 无独立素材时用阶段 1 兼作种子图
+            src_png = d / "1.png" if (d / "1.png").exists() else d / "1.svg"
         for size in PRERENDER_SIZES:
-            f = d / f"{stage}_{size}.png"
-            if not f.exists():
-                f.write_bytes(render_png(slug, stage, size))
+            out = d / f"{stage}_{size}.png"
+            if out.exists():
+                continue
+            if src_png.exists():
+                img = Image.open(src_png).convert("RGBA")
+                w, h = img.size
+                target_h = max(1, round(h * size / w))
+                img.resize((size, target_h), Image.LANCZOS).save(out, "PNG")
+            elif src_svg.exists():
+                out.write_bytes(render_png(slug, stage, size))
 
 
 def prerender_all() -> dict:

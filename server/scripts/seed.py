@@ -34,6 +34,14 @@ def achievement_uuid(code: str) -> uuid.UUID:
     return uuid.uuid5(uuid.NAMESPACE_URL, f"achievement:{code}")
 
 
+def crop_png_art(slug: str) -> dict:
+    """作物美术:真实素材 PNG 路径(种子图用阶段 1 兼作)。"""
+    return {
+        "seed": f"/static/assets/crops/{slug}/1.png",
+        "stages": [f"/static/assets/crops/{slug}/{i}.png" for i in (1, 2, 3)],
+    }
+
+
 _ART: dict = {}
 
 
@@ -84,12 +92,6 @@ def seed_if_empty(db: Session) -> bool:
 
 def _seed_base(db: Session) -> None:
     """基础数据:节气 / 作物 / 道具 / 游戏时钟。"""
-    # 生成 6 种初始作物的美术资产(SVG),写入 static/assets/crops/<slug>/
-    from app.core.svg_art import generate_all
-
-    global _ART
-    _ART = generate_all()
-
     for t in _load("term_config.json"):
         db.add(
             TermConfig(
@@ -101,6 +103,7 @@ def _seed_base(db: Session) -> None:
         )
 
     for c in _load("crops.json"):
+        slug = c.get("slug", "")
         db.add(
             Crop(
                 id=crop_uuid(c["name"]),
@@ -111,7 +114,7 @@ def _seed_base(db: Session) -> None:
                 yield_base=c["yield_base"],
                 base_price=c["base_price"],
                 description=c.get("description"),
-                art=_ART.get(c.get("slug"), {}),
+                art=crop_png_art(slug),
                 sort_order=c.get("sort_order", 0),
             )
         )

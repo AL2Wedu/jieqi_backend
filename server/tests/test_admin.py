@@ -91,7 +91,7 @@ def test_crops_crud(client):
     r = client.post(
         "/v1/admin/crops",
         json={
-            "name": "萝卜",
+            "name": "西瓜",
             "category": "蔬菜",
             "sow_window": {"type": "term", "start": 14, "end": 16, "grace": 2},
             "grow_seconds": 700,
@@ -112,7 +112,7 @@ def test_crops_crud(client):
     # 商店出现萝卜种子(玩家视角)
     shop = client.get("/v1/shop/items", headers=ph).json()["data"]["items"]
     assert any(
-        i["name"] == "萝卜种子" and i["effect"]["crop_id"] == crop_id for i in shop
+        i["name"] == "西瓜种子" and i["effect"]["crop_id"] == crop_id for i in shop
     )
 
     # 编辑
@@ -125,7 +125,7 @@ def test_crops_crud(client):
     r = client.delete(f"/v1/admin/crops/{crop_id}", headers=h).json()
     assert r["code"] == 0 and r["data"]["active"] is False
     shop = client.get("/v1/shop/items", headers=ph).json()["data"]["items"]
-    assert not any(i["name"] == "萝卜种子" for i in shop)
+    assert not any(i["name"] == "西瓜种子" for i in shop)
 
 
 def test_items_crud(client):
@@ -179,7 +179,7 @@ def test_plantings_view(client):
             break
         client.post("/v1/debug/term/advance", headers=ph)
     shop = client.get("/v1/shop/items", headers=ph).json()["data"]["items"]
-    seed = next(i for i in shop if i["code"] == "seed_rice")
+    seed = next(i for i in shop if i["code"] == "seed_shuidao")
     client.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=ph)
     plot = client.get("/v1/farm/state", headers=ph).json()["data"]["plots"][0]["plot_id"]
     client.post(f"/v1/farm/plots/{plot}/sow", json={"crop_id": seed["effect"]["crop_id"]}, headers=ph)

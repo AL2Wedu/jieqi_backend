@@ -1,11 +1,218 @@
 [
-  {"code": "seed_rice", "name": "水稻种子", "category": "seed", "effect": {"type": "seed", "crop_name": "水稻"}, "buy_price": 25, "sell_price": 5, "sort_order": 1},
-  {"code": "seed_wheat", "name": "小麦种子", "category": "seed", "effect": {"type": "seed", "crop_name": "小麦"}, "buy_price": 22, "sell_price": 4, "sort_order": 2},
-  {"code": "seed_soybean", "name": "大豆种子", "category": "seed", "effect": {"type": "seed", "crop_name": "大豆"}, "buy_price": 20, "sell_price": 4, "sort_order": 3},
-  {"code": "seed_cabbage", "name": "白菜种子", "category": "seed", "effect": {"type": "seed", "crop_name": "白菜"}, "buy_price": 15, "sell_price": 3, "sort_order": 4},
-  {"code": "seed_tomato", "name": "番茄种子", "category": "seed", "effect": {"type": "seed", "crop_name": "番茄"}, "buy_price": 18, "sell_price": 4, "sort_order": 5},
-  {"code": "seed_chrysanthemum", "name": "菊花种子", "category": "seed", "effect": {"type": "seed", "crop_name": "菊花"}, "buy_price": 30, "sell_price": 6, "sort_order": 6},
-  {"code": "fertilizer", "name": "农家肥", "category": "fertilizer", "effect": {"type": "boost", "growth_pct": 50}, "buy_price": 50, "sell_price": 10, "sort_order": 7},
-  {"code": "water_pot", "name": "水壶", "category": "tool", "effect": {"type": "water", "amount": 100}, "buy_price": 30, "sell_price": 5, "sort_order": 8},
-  {"code": "term_card", "name": "节气卡", "category": "card", "effect": {"type": "term_lock", "lock_terms": 3}, "buy_price": 100, "sell_price": 20, "sort_order": 9}
+  {
+    "code": "seed_shuidao",
+    "name": "水稻种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "水稻"
+    },
+    "buy_price": 25,
+    "sell_price": 5,
+    "sort_order": 1
+  },
+  {
+    "code": "seed_xiaomai",
+    "name": "小麦种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "小麦"
+    },
+    "buy_price": 22,
+    "sell_price": 4,
+    "sort_order": 2
+  },
+  {
+    "code": "seed_guzi",
+    "name": "谷子种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "谷子"
+    },
+    "buy_price": 18,
+    "sell_price": 3,
+    "sort_order": 3
+  },
+  {
+    "code": "seed_gaoliang",
+    "name": "高粱种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "高粱"
+    },
+    "buy_price": 18,
+    "sell_price": 3,
+    "sort_order": 4
+  },
+  {
+    "code": "seed_qiaomai",
+    "name": "荞麦种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "荞麦"
+    },
+    "buy_price": 16,
+    "sell_price": 3,
+    "sort_order": 5
+  },
+  {
+    "code": "seed_yumi",
+    "name": "玉米种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "玉米"
+    },
+    "buy_price": 24,
+    "sell_price": 4,
+    "sort_order": 6
+  },
+  {
+    "code": "seed_dadou",
+    "name": "大豆种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "大豆"
+    },
+    "buy_price": 20,
+    "sell_price": 4,
+    "sort_order": 7
+  },
+  {
+    "code": "seed_huasheng",
+    "name": "花生种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "花生"
+    },
+    "buy_price": 21,
+    "sell_price": 4,
+    "sort_order": 8
+  },
+  {
+    "code": "seed_youcai",
+    "name": "油菜种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "油菜"
+    },
+    "buy_price": 15,
+    "sell_price": 3,
+    "sort_order": 9
+  },
+  {
+    "code": "seed_zhima",
+    "name": "芝麻种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "芝麻"
+    },
+    "buy_price": 19,
+    "sell_price": 3,
+    "sort_order": 10
+  },
+  {
+    "code": "seed_baicai",
+    "name": "白菜种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "白菜"
+    },
+    "buy_price": 14,
+    "sell_price": 2,
+    "sort_order": 11
+  },
+  {
+    "code": "seed_dacong",
+    "name": "大葱种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "大葱"
+    },
+    "buy_price": 15,
+    "sell_price": 3,
+    "sort_order": 12
+  },
+  {
+    "code": "seed_luobo",
+    "name": "萝卜种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "萝卜"
+    },
+    "buy_price": 13,
+    "sell_price": 2,
+    "sort_order": 13
+  },
+  {
+    "code": "seed_hongshu",
+    "name": "红薯种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "红薯"
+    },
+    "buy_price": 17,
+    "sell_price": 3,
+    "sort_order": 14
+  },
+  {
+    "code": "seed_mianhua",
+    "name": "棉花种子",
+    "category": "seed",
+    "effect": {
+      "type": "seed",
+      "crop_name": "棉花"
+    },
+    "buy_price": 23,
+    "sell_price": 4,
+    "sort_order": 15
+  },
+  {
+    "code": "fertilizer",
+    "name": "农家肥",
+    "category": "fertilizer",
+    "effect": {
+      "type": "boost",
+      "growth_pct": 50
+    },
+    "buy_price": 50,
+    "sell_price": 10,
+    "sort_order": 16
+  },
+  {
+    "code": "water_pot",
+    "name": "水壶",
+    "category": "tool",
+    "effect": {
+      "type": "water",
+      "amount": 100
+    },
+    "buy_price": 30,
+    "sell_price": 5,
+    "sort_order": 17
+  },
+  {
+    "code": "term_card",
+    "name": "节气卡",
+    "category": "card",
+    "effect": {
+      "type": "term_lock",
+      "lock_terms": 3
+    },
+    "buy_price": 100,
+    "sell_price": 20,
+    "sort_order": 18
+  }
 ]

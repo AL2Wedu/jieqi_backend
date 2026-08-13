@@ -1,68 +1,17 @@
 [
-  {
-    "name": "水稻",
-    "slug": "rice",
-    "category": "谷物",
-    "sow_window": {"type": "term", "start": 5, "end": 7, "grace": 2},
-    "grow_seconds": 900,
-    "yield_base": 6,
-    "base_price": 20,
-    "description": "谷雨前后,种瓜点豆。",
-    "sort_order": 1
-  },
-  {
-    "name": "小麦",
-    "slug": "wheat",
-    "category": "谷物",
-    "sow_window": {"type": "term", "start": 19, "end": 21, "grace": 2},
-    "grow_seconds": 1200,
-    "yield_base": 5,
-    "base_price": 18,
-    "description": "秋分种麦正当时。",
-    "sort_order": 2
-  },
-  {
-    "name": "大豆",
-    "slug": "soybean",
-    "category": "谷物",
-    "sow_window": {"type": "term", "start": 9, "end": 11, "grace": 2},
-    "grow_seconds": 900,
-    "yield_base": 5,
-    "base_price": 16,
-    "description": "芒种前后种豆忙。",
-    "sort_order": 3
-  },
-  {
-    "name": "白菜",
-    "slug": "cabbage",
-    "category": "蔬菜",
-    "sow_window": {"type": "term", "start": 18, "end": 20, "grace": 2},
-    "grow_seconds": 600,
-    "yield_base": 4,
-    "base_price": 12,
-    "description": "头伏萝卜二伏菜。",
-    "sort_order": 4
-  },
-  {
-    "name": "番茄",
-    "slug": "tomato",
-    "category": "蔬菜",
-    "sow_window": {"type": "term", "start": 6, "end": 8, "grace": 2},
-    "grow_seconds": 900,
-    "yield_base": 5,
-    "base_price": 15,
-    "description": "小暑番茄正当红。",
-    "sort_order": 5
-  },
-  {
-    "name": "菊花",
-    "slug": "chrysanthemum",
-    "category": "花卉",
-    "sow_window": {"type": "term", "start": 4, "end": 6, "grace": 2},
-    "grow_seconds": 1200,
-    "yield_base": 3,
-    "base_price": 25,
-    "description": "待到重阳日,还来就菊花。",
-    "sort_order": 6
-  }
+  { "name": "水稻", "slug": "shuidao", "category": "谷物", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 1 },
+  { "name": "小麦", "slug": "xiaomai", "category": "谷物", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 2 },
+  { "name": "谷子", "slug": "guzi", "category": "谷物", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 3 },
+  { "name": "高粱", "slug": "gaoliang", "category": "谷物", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 4 },
+  { "name": "荞麦", "slug": "qiaomai", "category": "谷物", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 5 },
+  { "name": "玉米", "slug": "yumi", "category": "谷物", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 6 },
+  { "name": "大豆", "slug": "dadou", "category": "油料", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 7 },
+  { "name": "花生", "slug": "huasheng", "category": "油料", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 8 },
+  { "name": "油菜", "slug": "youcai", "category": "油料", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 9 },
+  { "name": "芝麻", "slug": "zhima", "category": "油料", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 10 },
+  { "name": "白菜", "slug": "baicai", "category": "蔬菜", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 11 },
+  { "name": "大葱", "slug": "dacong", "category": "蔬菜", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 12 },
+  { "name": "萝卜", "slug": "luobo", "category": "蔬菜", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 13 },
+  { "name": "红薯", "slug": "hongshu", "category": "蔬菜", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 14 },
+  { "name": "棉花", "slug": "mianhua", "category": "经济作物", "sow_window": {"type": "term", "start": 1, "end": 24, "grace": 0}, "grow_seconds": 600, "yield_base": 6, "base_price": 20, "sort_order": 15 }
 ]

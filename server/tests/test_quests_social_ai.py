@@ -92,7 +92,7 @@ def _advance_to_rice_window(client, h):
 def _sow_and_harvest_one(client, h):
     _advance_to_rice_window(client, h)
     shop = client.get("/v1/shop/items", headers=h).json()["data"]["items"]
-    seed = next(i for i in shop if i["code"] == "seed_rice")
+    seed = next(i for i in shop if i["code"] == "seed_shuidao")
     client.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=h)
     plot = client.get("/v1/farm/state", headers=h).json()["data"]["plots"][0]["plot_id"]
     client.post(f"/v1/farm/plots/{plot}/sow", json={"crop_id": seed["effect"]["crop_id"]}, headers=h)

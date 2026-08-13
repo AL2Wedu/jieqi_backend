@@ -23,16 +23,16 @@ def test_shop_isolation():
         hB = _reg(c, "shop_iso_b")
         stateA = c.get("/v1/shop/state", headers=hA).json()["data"]
         stateB = c.get("/v1/shop/state", headers=hB).json()["data"]
-        seedA = next(i for i in stateA["items"] if i["code"] == "seed_rice")
-        seedB = next(i for i in stateB["items"] if i["code"] == "seed_rice")
+        seedA = next(i for i in stateA["items"] if i["code"] == "seed_shuidao")
+        seedB = next(i for i in stateB["items"] if i["code"] == "seed_shuidao")
         assert seedA["stock"] == seedB["stock"] == 5
         r = c.post(
             f"/v1/shop/items/{seedA['item_id']}/buy", json={"quantity": 2}, headers=hA
         ).json()
         assert r["code"] == 0
         # A 减了 2,B 不变
-        a2 = next(i for i in c.get("/v1/shop/state", headers=hA).json()["data"]["items"] if i["code"] == "seed_rice")
-        b2 = next(i for i in c.get("/v1/shop/state", headers=hB).json()["data"]["items"] if i["code"] == "seed_rice")
+        a2 = next(i for i in c.get("/v1/shop/state", headers=hA).json()["data"]["items"] if i["code"] == "seed_shuidao")
+        b2 = next(i for i in c.get("/v1/shop/state", headers=hB).json()["data"]["items"] if i["code"] == "seed_shuidao")
         assert a2["stock"] == 3 and b2["stock"] == 5
 
 
@@ -48,7 +48,7 @@ def test_sell_out_and_restock():
         ).json()
         assert r["code"] == 0
         h = _reg(c, "shop_sellout")
-        seed = next(i for i in c.get("/v1/shop/state", headers=h).json()["data"]["items"] if i["code"] == "seed_rice")
+        seed = next(i for i in c.get("/v1/shop/state", headers=h).json()["data"]["items"] if i["code"] == "seed_shuidao")
         c.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 2}, headers=h)
         # 售空后再买 → NOT_ENOUGH_STOCK
         r = c.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=h).json()
@@ -58,7 +58,7 @@ def test_sell_out_and_restock():
 
         time.sleep(1.2)
         state = c.get("/v1/shop/state", headers=h).json()["data"]
-        seed2 = next(i for i in state["items"] if i["code"] == "seed_rice")
+        seed2 = next(i for i in state["items"] if i["code"] == "seed_shuidao")
         assert state["restocked"] is True and seed2["stock"] == 2
 
 
@@ -100,7 +100,7 @@ def test_harvest_storage_and_sell():
                 break
             c.post("/v1/debug/term/advance", headers=h)
         state = c.get("/v1/shop/state", headers=h).json()["data"]
-        seed = next(i for i in state["items"] if i["code"] == "seed_rice")
+        seed = next(i for i in state["items"] if i["code"] == "seed_shuidao")
         c.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=h)
         crop_id = seed["effect"]["crop_id"]
         plot = c.get("/v1/farm/state", headers=h).json()["data"]["plots"][0]["plot_id"]
@@ -146,7 +146,7 @@ def test_admin_shop_manage():
         pid = mine["player_id"]
         # 商品明细
         r = c.get(f"/v1/admin/shop/users/{pid}/items", headers=ah).json()
-        seed = next(i for i in r["data"]["items"] if i["code"] == "seed_rice")
+        seed = next(i for i in r["data"]["items"] if i["code"] == "seed_shuidao")
         assert seed["stock"] == 3 and seed["buy_override"] is None
         # 覆盖价格(水稻种子 25 × item_factor 2.0 = 50,覆盖为 40)
         r = c.put(
@@ -156,16 +156,16 @@ def test_admin_shop_manage():
         ).json()
         assert r["code"] == 0 and r["data"]["buy_override"] == 40
         # 玩家视角看到覆盖价
-        price = next(i for i in c.get("/v1/shop/state", headers=h).json()["data"]["items"] if i["code"] == "seed_rice")["buy_price"]
+        price = next(i for i in c.get("/v1/shop/state", headers=h).json()["data"]["items"] if i["code"] == "seed_shuidao")["buy_price"]
         assert price == 40
         # 清除覆盖 → 恢复公式价(25 × item_factor 2.0 = 50)
         c.put(f"/v1/admin/shop/users/{pid}/items/{seed['item_id']}", json={"buy_price": 99}, headers=ah)
         c.put(f"/v1/admin/shop/users/{pid}/items/{seed['item_id']}", json={"buy_price": None}, headers=ah)
-        price2 = next(i for i in c.get("/v1/shop/state", headers=h).json()["data"]["items"] if i["code"] == "seed_rice")["buy_price"]
+        price2 = next(i for i in c.get("/v1/shop/state", headers=h).json()["data"]["items"] if i["code"] == "seed_shuidao")["buy_price"]
         assert price2 == 50  # 公式价(25 × item_factor 2.0)
         # 手动补货
         c.post(f"/v1/admin/shop/users/{pid}/restock", headers=ah)
         r_get = c.get(f"/v1/admin/shop/users/{pid}/items", headers=ah)
         assert r_get.status_code == 200, r_get.text
-        stock = next(i for i in r_get.json()["data"]["items"] if i["code"] == "seed_rice")["stock"]
+        stock = next(i for i in r_get.json()["data"]["items"] if i["code"] == "seed_shuidao")["stock"]
         assert stock == 3

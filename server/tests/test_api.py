@@ -61,7 +61,7 @@ def test_full_flow(client):
     r = client.get("/v1/shop/items", headers=h).json()
     assert r["code"] == 0
     items = {i["code"]: i for i in r["data"]["items"]}
-    seed = items["seed_rice"]
+    seed = items["seed_shuidao"]
     crop_id = seed["effect"]["crop_id"]
 
     # 未买种子直接播种 → 失败
@@ -124,7 +124,7 @@ def test_full_flow(client):
     r = client.get("/v1/player/inventory", headers=h).json()
     assert r["code"] == 0
     inv = {i["code"]: i for i in r["data"]["items"]}
-    assert inv["seed_rice"]["quantity"] == 0
+    assert inv["seed_shuidao"]["quantity"] == 0
 
     # 调试:改配置
     r = client.post(
