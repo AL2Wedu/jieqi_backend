@@ -34,3 +34,56 @@ class DebugConfigRequest(BaseModel):
 
 class DebugGrowRequest(BaseModel):
     plot_id: str
+
+
+# ---------- 管理后台 ----------
+
+class AdminLoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=32)
+    password: str = Field(min_length=1, max_length=64)
+
+
+class AdminStatusRequest(BaseModel):
+    status: int = Field(ge=0, le=1)
+
+
+class AdminConfigValue(BaseModel):
+    value: dict | list | str | int | float | bool | None = None
+
+
+class AdminCropPayload(BaseModel):
+    name: str | None = None
+    category: str | None = None
+    sow_window: dict | None = None
+    grow_seconds: int | None = None
+    yield_base: int | None = None
+    base_price: int | None = None
+    unlock_level: int | None = None
+    description: str | None = None
+    sort_order: int | None = None
+    active: bool | None = None
+    auto_seed: bool = False
+
+
+class AdminItemPayload(BaseModel):
+    code: str | None = None
+    name: str | None = None
+    category: str | None = None
+    stackable: bool | None = None
+    max_stack: int | None = None
+    effect: dict | None = None
+    buy_price: int | None = None
+    sell_price: int | None = None
+    unlock_level: int | None = None
+    sort_order: int | None = None
+    active: bool | None = None
+
+
+class AdminTermDuration(BaseModel):
+    duration_seconds: int = Field(ge=10, le=86400)
+
+
+class AdminClockPayload(BaseModel):
+    time_scale: float | None = Field(default=None, gt=0, le=100)
+    paused: bool | None = None
+    reset_epoch: bool = False

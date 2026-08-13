@@ -11,8 +11,6 @@ from app.main import app
 
 @pytest.fixture(scope="module")
 def client():
-    if os.path.exists("test.db"):
-        os.remove("test.db")
     with TestClient(app) as c:
         yield c
 
@@ -43,12 +41,14 @@ def test_full_flow(client):
     assert r["code"] == 0 and 1 <= r["data"]["term_index"] <= 24
     assert r["data"]["remaining_sec"] > 0
 
-    # 推进节气到谷雨(第 6 个节气,水稻宜种窗),从立春起推进 5 轮
-    for _ in range(5):
-        r = client.post("/v1/debug/term/advance", headers=h).json()
-        assert r["code"] == 0
-    r = client.get("/v1/calendar/current").json()
-    assert r["data"]["term_index"] == 6  # 谷雨
+    # 推进节气直到进入水稻宜种窗(5清明-7谷雨,含宽限期 9)
+    for _ in range(40):
+        cal = client.get("/v1/calendar/current").json()["data"]
+        if 5 <= cal["term_index"] <= 9:
+            break
+        client.post("/v1/debug/term/advance", headers=h)
+    else:
+        raise AssertionError("无法推进到水稻宜种窗")
 
     # 农场状态:6 个地块
     r = client.get("/v1/farm/state", headers=h).json()

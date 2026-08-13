@@ -50,6 +50,8 @@ def login(db: Session, name: str, password: str, ip: str | None) -> dict:
     user = db.query(User).filter(User.name == name).first()
     if not user or not verify_password(password, user.password_hash):
         raise AppError("BAD_CREDENTIALS", "用户名或密码错误", code=20003)
+    if user.status != 1:
+        raise AppError("USER_BANNED", "账号已被封禁", http_status=403, code=20004)
     user.last_login_at = datetime.now(timezone.utc)
     user.last_login_ip = ip
     player = db.query(Player).filter(Player.user_id == user.id).first()

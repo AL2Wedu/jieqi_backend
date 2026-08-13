@@ -47,3 +47,18 @@ def decode_token(token: str) -> str | None:
         return payload.get("sub")
     except Exception:
         return None
+
+
+def create_admin_token() -> str:
+    """管理后台 token:role=admin,2 小时过期。"""
+    now = int(time.time())
+    payload = {"sub": "admin", "role": "admin", "iat": now, "exp": now + 2 * 3600}
+    return pyjwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def is_admin_token(token: str) -> bool:
+    try:
+        payload = pyjwt.decode(token, settings.jwt_secret, algorithms=[settings.jwt_algorithm])
+        return payload.get("role") == "admin"
+    except Exception:
+        return False

@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.db import SessionLocal
 from app.core.errors import AppError
-from app.core.security import decode_token
+from app.core.security import decode_token, is_admin_token
 from app.models import Player
 
 
@@ -34,3 +34,17 @@ def get_current_player(
     if not player:
         raise AppError("UNAUTHORIZED", "玩家不存在", http_status=401, code=10002)
     return player
+
+
+def get_current_admin(authorization: str | None = Header(None)) -> str:
+    """管理后台守卫:校验 admin token;ADMIN_ENABLED=false 时整体禁用。"""
+    from app.core.config import settings
+
+    if not settings.admin_enabled:
+        raise AppError("ADMIN_DISABLED", "管理后台已关闭", http_status=403, code=30002)
+    if not authorization or not authorization.startswith("Bearer "):
+        raise AppError("UNAUTHORIZED", "未登录", http_status=401, code=10002)
+    token = authorization.removeprefix("Bearer ").strip()
+    if not is_admin_token(token):
+        raise AppError("UNAUTHORIZED", "管理员凭证无效或已过期", http_status=401, code=10003)
+    return "admin"

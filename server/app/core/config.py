@@ -11,6 +11,9 @@ class Settings(BaseSettings):
     jwt_expire_days: int = 7
     debug_enabled: bool = True
     term_default_duration: int = 300
+    admin_username: str = "admin"
+    admin_password: str = ""
+    admin_enabled: bool = True
 
 
 settings = Settings()
