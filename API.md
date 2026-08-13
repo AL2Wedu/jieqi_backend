@@ -91,6 +91,7 @@
 | 24 | POST | `/v1/ai/chat` | 🔐 | **OpenAI 兼容对话转发**(请求体透传,自动记用量) |
 | 25 | GET | `/v1/ai/models` | 🔐 | 上游可用模型列表(透传) |
 | 26 | GET | `/v1/ai/usage` | 🔐 | 我的 AI 用量(总量 + 按日) |
+| 27 | GET | `/v1/art/crops/{slug}/{name}.png?w=` | 🔓 | **美术下发**:按请求分辨率返回预渲染 PNG(见 §8.3) |
 
 ### 2.2 调试接口(🧪 `DEBUG_ENABLED=true` 时可用,需 🔐)
 
@@ -666,9 +667,23 @@
 
 **9 道具**:6 种子 + 农家肥(boost 50)+ 水壶(water)+ 节气卡(term_lock)
 
-### 8.3 美术资产
+### 8.3 美术资产(多分辨率预渲染)
 
-每作物 4 张 SVG,路径存 `crops.art`:`seed`(种子图标)+ `stages[3]`(苗期/生长期/成熟)。静态地址 `/static/assets/crops/<slug>/{seed,1,2,3}.svg`;新作物自动生成占位图。客户端按 `stage-1` 索引取 `stages` 图。
+每个作物 4 个素材(种子 + 苗期/生长期/成熟),双格式:
+
+- **SVG 矢量源**:`/static/assets/crops/<slug>/{seed,1,2,3}.svg`(管理后台预览用)
+- **预渲染 PNG 四档**:`<name>_32.png` / `_64.png` / `_128.png` / `_256.png`(启动/创建时生成)
+
+**客户端取图协议(推荐)** —— 按屏幕分辨率请求,服务端自动选档:
+
+```
+GET /v1/art/crops/{slug}/{seed|1|2|3}.png?w=<目标像素>
+```
+
+- 选档规则:取**最小不小于 w** 的预渲染档;w 超过 256 时返回最大档(256)
+- 响应:`image/png` + `Cache-Control: public, max-age=86400`;素材不存在返回 404(`28001 ART_NOT_FOUND`)
+- slug 来源:作物 `art.seed` 路径中的目录名(如 `/static/assets/crops/rice/seed.svg` → `rice`)
+- 示例:Godot 端格子图 `?w=64`(缩略)/ 大图 `?w=256`;玩家视角按 `stage-1` 取 `stages` 对应素材
 
 ---
 
@@ -715,6 +730,7 @@
 | 27003 | REQUEST_NOT_FOUND | 400 | 好友申请不存在 |
 | 27004 | NOT_YOUR_REQUEST | 400 | 该申请不是发给你的 |
 | 27005 | FRIEND_NOT_FOUND | 400 | 好友不存在 |
+| 28001 | ART_NOT_FOUND | 404 | 美术素材不存在 |
 | 30001 | ADMIN_BAD_CREDENTIALS | 401 | 管理员账号或密码错误 |
 | 30002 | ADMIN_DISABLED | 403 | 管理后台已关闭 |
 | 90000 | INTERNAL_ERROR | 500 | 服务器内部错误 |

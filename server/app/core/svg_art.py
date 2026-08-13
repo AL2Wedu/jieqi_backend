@@ -101,7 +101,7 @@ def svg_stage3(color: str, produce: str, kind: str) -> str:
 
 
 def generate_crop_art(slug: str, color: str, produce: str, kind: str) -> dict:
-    """生成一个作物的 4 张美术,返回 art JSON。"""
+    """生成一个作物的美术:SVG(矢量源)+ 多分辨率预渲染 PNG。返回 art JSON。"""
     d = ART_ROOT / slug
     d.mkdir(parents=True, exist_ok=True)
     files = {
@@ -112,6 +112,12 @@ def generate_crop_art(slug: str, color: str, produce: str, kind: str) -> dict:
     }
     for name, body in files.items():
         (d / name).write_text(body, encoding="utf-8")
+    # 预渲染 PNG:每个素材 × 多个分辨率(客户端按请求分辨率取图)
+    for stage, svg_name in (("seed", "seed.svg"), ("1", "1.svg"), ("2", "2.svg"), ("3", "3.svg")):
+        for size in PRERENDER_SIZES:
+            (d / f"{svg_name.removesuffix('.svg')}_{size}.png").write_bytes(
+                render_png(slug, stage, size)
+            )
     return default_art(slug)
 
 
@@ -120,6 +126,132 @@ def default_art(slug: str) -> dict:
         "seed": f"/static/assets/crops/{slug}/seed.svg",
         "stages": [f"/static/assets/crops/{slug}/{i}.svg" for i in (1, 2, 3)],
     }
+
+
+# ---------- Pillow 预渲染(多分辨率 PNG,与 SVG 同款形状) ----------
+
+PRERENDER_SIZES = (32, 64, 128, 256)
+
+_LEAF = "#7cb342"
+_BG = (31, 41, 55, 255)  # #1f2937
+_SOIL = ((107, 79, 58, 255), (138, 106, 75, 255), (160, 120, 80, 255))
+
+
+def _hex(c: str) -> tuple:
+    c = c.lstrip("#")
+    return (int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16), 255)
+
+
+def _rot_ellipse(d, cx, cy, rx, ry, angle, fill, n=24):
+    """旋转椭圆(多边形近似,角度制)。"""
+    import math
+
+    ra = math.radians(angle)
+    pts = []
+    for i in range(n):
+        a = math.radians(i * 360 / n)
+        x = cx + rx * math.cos(a)
+        y = cy + ry * math.sin(a)
+        pts.append((cx + (x - cx) * math.cos(ra) - (y - cy) * math.sin(ra),
+                    cy + (x - cx) * math.sin(ra) + (y - cy) * math.cos(ra)))
+    d.polygon(pts, fill=fill)
+
+
+def render_png(slug: str, stage: str, size: int) -> bytes:
+    """按 slug 配色渲染指定阶段(stage: seed/1/2/3)的 PNG。"""
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw
+
+    spec = CROP_SPECS.get(slug, (_LEAF, "#f0c040", "grains"))
+    leaf = _hex(spec[0])
+    produce = _hex(spec[1])
+    kind = spec[2]
+    s = size / 128.0
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([0, 0, size - 1, size - 1], radius=max(2, int(18 * s)), fill=_BG)
+
+    def soil():
+        for i, c in enumerate(_SOIL):
+            d.ellipse([24 * s, (96 + i * 1.5) * s, 104 * s, (120 + i * 1.5) * s], fill=c)
+
+    def stem(x1, y1, x2, y2, w):
+        d.line([x1 * s, y1 * s, x2 * s, y2 * s], fill=leaf, width=max(2, int(w * s)))
+
+    if stage == "seed":
+        _rot_ellipse(d, 64 * s, 82 * s, 17 * s, 11 * s, -24, leaf)
+        _rot_ellipse(d, 64 * s, 70 * s, 12 * s, 9 * s, 8, _hex("#e8f5e9"))
+        stem(62 * s, 76 * s, 60 * s, 60 * s, 3)
+    elif stage == "1":
+        soil()
+        stem(64, 102, 64, 72, 5)
+        _rot_ellipse(d, 50 * s, 72 * s, 9 * s, 5 * s, -20, leaf)
+        _rot_ellipse(d, 78 * s, 72 * s, 9 * s, 5 * s, 20, leaf)
+        d.ellipse([60 * s, 54 * s, 68 * s, 62 * s], fill=leaf)
+    elif stage == "2":
+        soil()
+        stem(64, 102, 64, 54, 6)
+        stem(64, 102, 64, 60, 6)
+        _rot_ellipse(d, 50 * s, 62 * s, 11 * s, 6 * s, -28, leaf)
+        _rot_ellipse(d, 78 * s, 62 * s, 11 * s, 6 * s, 28, leaf)
+        _rot_ellipse(d, 54 * s, 44 * s, 9 * s, 5 * s, -40, leaf)
+        _rot_ellipse(d, 74 * s, 44 * s, 9 * s, 5 * s, 40, leaf)
+        _rot_ellipse(d, 64 * s, 92 * s, 5 * s, 8 * s, 0, _hex("#e8f5e9"))
+    else:  # stage 3 成熟
+        soil()
+        stem(64, 102, 64, 40, 7)
+        stem(64, 102, 64, 46, 7)
+        _rot_ellipse(d, 48 * s, 56 * s, 12 * s, 7 * s, -30, leaf)
+        _rot_ellipse(d, 80 * s, 56 * s, 12 * s, 7 * s, 30, leaf)
+        _rot_ellipse(d, 50 * s, 34 * s, 10 * s, 6 * s, -45, leaf)
+        _rot_ellipse(d, 78 * s, 34 * s, 10 * s, 6 * s, 45, leaf)
+        stem(64, 40, 64, 32, 3)
+        if kind == "grains":  # 稻/麦:三簇穗
+            for dx in (-10, 0, 10):
+                _rot_ellipse(d, (64 + dx) * s, 32 * s, 6 * s, 9 * s, dx, produce)
+        elif kind == "pods":  # 豆荚
+            _rot_ellipse(d, 55 * s, 48 * s, 4 * s, 10 * s, -20, produce)
+            _rot_ellipse(d, 73 * s, 48 * s, 4 * s, 10 * s, 20, produce)
+        elif kind == "fruits":  # 番茄
+            for cx, cy in ((56, 46), (72, 46), (64, 56), (50, 56), (78, 56)):
+                d.ellipse([(cx - 7) * s, (cy - 7) * s, (cx + 7) * s, (cy + 7) * s], fill=produce)
+            _rot_ellipse(d, 64 * s, 36 * s, 4 * s, 2 * s, 0, _hex("#81c784"))
+        elif kind == "flower":  # 菊花
+            import math
+
+            for i in range(8):
+                a = math.pi * 2 * i / 8
+                cx = 64 + 14 * math.cos(a)
+                cy = 42 + 14 * math.sin(a)
+                _rot_ellipse(d, cx * s, cy * s, 5 * s, 9 * s, i * 45, produce)
+            d.ellipse([57 * s, 35 * s, 71 * s, 49 * s], fill=_hex("#ffd54f"))
+        elif kind == "head":  # 白菜
+            d.ellipse([50 * s, 32 * s, 78 * s, 72 * s], fill=produce)
+            _rot_ellipse(d, 54 * s, 44 * s, 8 * s, 14 * s, -18, produce)
+            _rot_ellipse(d, 74 * s, 44 * s, 8 * s, 14 * s, 18, produce)
+
+    buf = BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def ensure_prerendered(slug: str) -> None:
+    """确保某个作物的多分辨率 PNG 已预渲染(无则补渲染)。"""
+    d = ART_ROOT / slug
+    for stage in ("seed", "1", "2", "3"):
+        for size in PRERENDER_SIZES:
+            f = d / f"{stage}_{size}.png"
+            if not f.exists():
+                f.write_bytes(render_png(slug, stage, size))
+
+
+def prerender_all() -> dict:
+    """预渲染全部作物美术,返回 {slug: art}。"""
+    arts = generate_all()
+    for slug in arts:
+        ensure_prerendered(slug)
+    return arts
 
 
 # 6 种初始作物配色:slug -> (叶色, 果实色, 形态)

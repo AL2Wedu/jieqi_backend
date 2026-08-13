@@ -2,7 +2,7 @@ import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from app.api import achievements, admin, ai, auth, calendar, debug, farm, player, quests, shop, social
+from app.api import achievements, admin, ai, art, auth, calendar, debug, farm, player, quests, shop, social
 from app.core.db import SessionLocal
 from app.services import calendar_service
 from app.ws import manager
@@ -17,6 +17,7 @@ api.include_router(quests.router)
 api.include_router(social.router)
 api.include_router(achievements.router)
 api.include_router(ai.router)
+api.include_router(art.router)
 api.include_router(debug.router)
 api.include_router(admin.router)
 
