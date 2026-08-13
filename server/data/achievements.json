@@ -1,0 +1,47 @@
+[
+  {
+    "code": "a_first_sow",
+    "name": "初识农事",
+    "description": "第一次播种作物",
+    "category": "成长",
+    "target": {"type": "sow", "count": 1},
+    "reward": {"coins": 10, "exp": 5},
+    "sort_order": 1
+  },
+  {
+    "code": "a_harvest_10",
+    "name": "丰收能手",
+    "description": "累计收获 10 株作物",
+    "category": "农耕",
+    "target": {"type": "harvest", "count": 10},
+    "reward": {"coins": 100, "exp": 30},
+    "sort_order": 2
+  },
+  {
+    "code": "a_friend_3",
+    "name": "良友满园",
+    "description": "拥有 3 位好友",
+    "category": "社交",
+    "target": {"type": "friend", "count": 3},
+    "reward": {"coins": 50, "exp": 20},
+    "sort_order": 3
+  },
+  {
+    "code": "a_spend_1000",
+    "name": "购物达人",
+    "description": "累计消费 1000 金币",
+    "category": "经营",
+    "target": {"type": "spend_coins", "amount": 1000},
+    "reward": {"coins": 200, "exp": 50},
+    "sort_order": 4
+  },
+  {
+    "code": "a_ai_10",
+    "name": "勤学好问",
+    "description": "向 AI 提问 10 次",
+    "category": "求知",
+    "target": {"type": "counter", "key": "ai_requests", "count": 10},
+    "reward": {"coins": 100, "exp": 30},
+    "sort_order": 5
+  }
+]

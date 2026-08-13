@@ -74,6 +74,24 @@
 | 12 | GET | `/v1/shop/items` | 🔓 | 商品列表(静态价 + effect) |
 | 13 | POST | `/v1/shop/items/{item_id}/buy` | 🔐 | 购买道具(扣金币,双账本) |
 
+### 2.2 扩展功能:任务 / 社交 / 成就 / AI(玩家端)
+
+| # | 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|---|
+| 14 | GET | `/v1/quests` | 🔐 | 任务列表(自动跟踪,含实时进度) |
+| 15 | POST | `/v1/quests/{quest_id}/claim` | 🔐 | 领取任务奖励 |
+| 16 | GET | `/v1/social/friends` | 🔐 | 好友列表 |
+| 17 | GET | `/v1/social/requests` | 🔐 | 收到的待处理好友申请 |
+| 18 | POST | `/v1/social/requests` | 🔐 | 发送好友申请 `{"player_id": "uuid"}` |
+| 19 | POST | `/v1/social/requests/{player_id}/accept` | 🔐 | 接受申请 |
+| 20 | POST | `/v1/social/requests/{player_id}/reject` | 🔐 | 拒绝申请 |
+| 21 | DELETE | `/v1/social/friends/{player_id}` | 🔐 | 删除好友 |
+| 22 | GET | `/v1/achievements` | 🔐 | 成就列表(自动重算进度,达成即 completed) |
+| 23 | POST | `/v1/achievements/{achievement_id}/claim` | 🔐 | 领取成就奖励 |
+| 24 | POST | `/v1/ai/chat` | 🔐 | **OpenAI 兼容对话转发**(请求体透传,自动记用量) |
+| 25 | GET | `/v1/ai/models` | 🔐 | 上游可用模型列表(透传) |
+| 26 | GET | `/v1/ai/usage` | 🔐 | 我的 AI 用量(总量 + 按日) |
+
 ### 2.2 调试接口(🧪 `DEBUG_ENABLED=true` 时可用,需 🔐)
 
 | # | 方法 | 路径 | 说明 |
@@ -106,6 +124,15 @@
 | 34 | GET | `/v1/admin/terms` | 24 节气时长 + 游戏时钟 |
 | 35 | PUT | `/v1/admin/terms/{term_index}` | 设置节气时长 `{"duration_seconds": 300}` |
 | 36 | PUT | `/v1/admin/clock` | 时钟:倍速/暂停/纪元重置 |
+
+**管理后台 AI 端点**:
+
+| # | 方法 | 路径 | 说明 |
+|---|---|---|---|
+| 36a | GET | `/v1/admin/ai/config` | AI 配置(api_key 脱敏) |
+| 36b | PUT | `/v1/admin/ai/config` | 保存 AI 配置 `{"enabled","base_url","api_key","model"}` |
+| 36c | POST | `/v1/admin/ai/test` | 测试连接(拉取上游模型列表) |
+| 36d | GET | `/v1/admin/ai/usage?page&page_size` | 全服每用户 AI 用量 |
 
 ### 2.4 WebSocket 与页面
 
@@ -505,9 +532,90 @@
 
 ---
 
-## 6. WebSocket 协议
+## 6. 任务 / 社交 / 成就 / AI
 
-### 6.1 WS /v1/ws — 节气广播
+### 6.1 通用条件格式(任务与成就共用)
+
+进度**由服务器从真实数据实时计算**,不依赖客户端上报。`objective`(任务)/ `target`(成就)格式:
+
+| type | 字段 | 含义 |
+|---|---|---|
+| sow | count | 累计播种次数 |
+| harvest | count | 累计收获次数 |
+| spend_coins | amount | 累计消费金币 |
+| level | level | 达到等级 |
+| friend | count | 好友数量 |
+| counter | key + count | 通用计数器(`ai_requests` / `ai_tokens`,取自用量表) |
+| any | count | 占位,直接达成 |
+
+> 新增条件类型只需扩展 `app/services/goal_service.py`,任务/成就配置零改动。
+
+### 6.2 任务
+
+**GET /v1/quests** → `data: {"items": [...]}`,每个任务:
+
+```json
+{
+  "quest_id": "uuid", "code": "q_sow_3", "name": "春耕三亩",
+  "description": "累计播种 3 株作物", "category": "daily",
+  "objective": { "type": "sow", "count": 3 },
+  "reward": { "coins": 30, "exp": 5 },
+  "status": 0,                       // 0进行中 1已完成 2已领取
+  "progress": { "current": 1, "target": 3 }
+}
+```
+
+任务自动跟踪(无需接取);`status` 在读取时自动更新。**POST /v1/quests/{id}/claim** → `data: {quest_id, code, reward, coins_balance}`。奖励(金币/经验/道具)全部走账本。
+
+### 6.3 社交
+
+- **GET /v1/social/friends** → `{"items": [{"player_id","name"}]}`
+- **GET /v1/social/requests** → 发给我的待处理申请 `{"items": [{"player_id","name","created_at"}]}`
+- **POST /v1/social/requests** body `{"player_id": "对方玩家id"}` → `{"status": 0, "target_player_id"}`
+- **accept / reject** → `{"status": 1|2, "target_player_id"}`
+- **DELETE /v1/social/friends/{player_id}** → `{"removed_player_id"}`
+
+### 6.4 成就(通用版)
+
+**GET /v1/achievements** → `{"items": [...]}`,每个:
+
+```json
+{
+  "achievement_id": "uuid", "code": "a_first_sow", "name": "初识农事",
+  "category": "成长", "target": { "type": "sow", "count": 1 },
+  "reward": { "coins": 10, "exp": 5 },
+  "completed": true, "claimed": false,
+  "progress": { "current": 1, "target": 1 },
+  "completed_at": "2026-08-13T..."
+}
+```
+
+读取时自动重算并置 `completed`;**POST /v1/achievements/{id}/claim** 领取奖励。后续可按需逐条细化规则,API 不变。
+
+### 6.5 AI 转发(OpenAI 兼容)
+
+**POST /v1/ai/chat** —— 请求体与上游完全一致(OpenAI chat/completions 格式),响应原样透传,自动记录用量:
+
+```json
+// 请求
+{ "model": "deepseek-chat", "messages": [{"role": "user", "content": "谷雨是什么?"}], "temperature": 0.7 }
+// 响应 data(上游原样)
+{ "id": "chatcmpl-...", "model": "deepseek-chat",
+  "choices": [{"index": 0, "message": {"role": "assistant", "content": "..."}, "finish_reason": "stop"}],
+  "usage": {"prompt_tokens": 12, "completion_tokens": 8, "total_tokens": 20} }
+```
+
+- `model` 缺省时用管理后台配置的默认模型
+- 支持任意 OpenAI 兼容上游(DeepSeek / 通义 / 智谱 / OpenAI)
+- 配置在管理后台"AI 设置"或 `PUT /v1/admin/ai/config`:enabled / base_url / api_key / model
+- **GET /v1/ai/usage** → `{total: {requests, prompt_tokens, completion_tokens, total_tokens}, by_day: [...]}`
+- **GET /v1/admin/ai/usage** → 全服每用户用量(按玩家聚合)
+
+---
+
+## 7. WebSocket 协议
+
+### 7.1 WS /v1/ws — 节气广播
 
 - 连接建立后立即推送一条当前节气事件;此后每个节气切换推送一条
 - 客户端收到 `{"type":"unknown"}` 事件应**忽略**(向前兼容)
@@ -519,7 +627,7 @@
 - 客户端发文本 `ping` → 服务端回 `{"type":"pong"}`
 - 断线重连:重连后第一条就是当前节气,不会丢状态
 
-### 6.2 WS /v1/admin/terminal?token=<admin_token> — 管理终端
+### 7.2 WS /v1/admin/terminal?token=<admin_token> — 管理终端
 
 **客户端 → 服务端**(JSON 文本):
 
@@ -539,9 +647,9 @@
 
 ---
 
-## 7. 数据对象速查
+## 8. 数据对象速查
 
-### 7.1 道具效果(effect JSONB)
+### 8.1 道具效果(effect JSONB)
 
 | type | 字段 | 说明 |
 |---|---|---|
@@ -550,7 +658,7 @@
 | water | amount | 浇水(当前置 water_level=100) |
 | term_lock | lock_terms | 节气卡,锁定 N 轮(效果未实现) |
 
-### 7.2 内置数据(seed 幂等导入)
+### 8.2 内置数据(seed 幂等导入)
 
 **24 节气**(term_index 1-24):立春 雨水 惊蛰 春分 清明 谷雨 / 立夏 小满 芒种 夏至 小暑 大暑 / 立秋 处暑 白露 秋分 寒露 霜降 / 立冬 小雪 大雪 冬至 小寒 大寒
 
@@ -558,13 +666,13 @@
 
 **9 道具**:6 种子 + 农家肥(boost 50)+ 水壶(water)+ 节气卡(term_lock)
 
-### 7.3 美术资产
+### 8.3 美术资产
 
 每作物 4 张 SVG,路径存 `crops.art`:`seed`(种子图标)+ `stages[3]`(苗期/生长期/成熟)。静态地址 `/static/assets/crops/<slug>/{seed,1,2,3}.svg`;新作物自动生成占位图。客户端按 `stage-1` 索引取 `stages` 图。
 
 ---
 
-## 8. 错误码全表
+## 9. 错误码全表
 
 | code | error_code | HTTP | 场景 |
 |---|---|---|---|
@@ -593,6 +701,20 @@
 | 22005 | ITEM_EXISTS | 400 | 道具 code 已存在 |
 | 23001 | CROP_NOT_MATURE | 400 | 作物尚未成熟 |
 | 23002 | TERM_NOT_FOUND | 400 | 节气不存在(管理端) |
+| 24001 | AI_DISABLED | 400 | AI 服务未启用 |
+| 24002 | AI_NOT_CONFIGURED | 400 | AI 服务器或 API Key 未配置 |
+| 24003 | AI_UPSTREAM_ERROR | 400 | 上游 AI 服务错误/连接失败 |
+| 25001 | QUEST_NOT_FOUND | 400 | 任务不存在 |
+| 25002 | QUEST_NOT_COMPLETE | 400 | 任务尚未完成 |
+| 25003 | QUEST_ALREADY_CLAIMED | 400 | 任务奖励已领取 |
+| 26001 | ACHIEVEMENT_NOT_FOUND | 400 | 成就不存在 |
+| 26002 | ACHIEVEMENT_NOT_COMPLETE | 400 | 成就尚未达成 |
+| 26003 | ACHIEVEMENT_ALREADY_CLAIMED | 400 | 成就奖励已领取 |
+| 27001 | ALREADY_FRIENDS | 400 | 已经是好友 |
+| 27002 | REQUEST_EXISTS | 400 | 好友申请已发送,等待处理 |
+| 27003 | REQUEST_NOT_FOUND | 400 | 好友申请不存在 |
+| 27004 | NOT_YOUR_REQUEST | 400 | 该申请不是发给你的 |
+| 27005 | FRIEND_NOT_FOUND | 400 | 好友不存在 |
 | 30001 | ADMIN_BAD_CREDENTIALS | 401 | 管理员账号或密码错误 |
 | 30002 | ADMIN_DISABLED | 403 | 管理后台已关闭 |
 | 90000 | INTERNAL_ERROR | 500 | 服务器内部错误 |
@@ -600,9 +722,9 @@
 
 ---
 
-## 9. 实现示例(可直接复用)
+## 10. 实现示例(可直接复用)
 
-### 9.1 完整玩法闭环(Python,urllib 标准库)
+### 10.1 完整玩法闭环(Python,urllib 标准库)
 
 ```python
 """注册 → 买种子 → 播种 → 浇水 → 收获 完整闭环。"""
@@ -648,7 +770,7 @@ hv = call("POST", f"/farm/plots/{plot}/harvest", token)["data"]
 print(f"收获: {hv['crop_name']} ×{hv['yield']} = +{hv['coins_earned']} 金币,余额 {hv['coins_balance']}")
 ```
 
-### 9.2 管理后台示例(curl)
+### 10.2 管理后台示例(curl)
 
 ```bash
 # 登录
@@ -666,7 +788,7 @@ curl -s -X POST http://127.0.0.1:8000/v1/admin/crops \
   -d '{"name":"萝卜","category":"蔬菜","sow_window":{"type":"term","start":14,"end":16,"grace":2},"grow_seconds":700,"yield_base":4,"base_price":14,"auto_seed":true}'
 ```
 
-### 9.3 Agent 行为准则
+### 10.3 Agent 行为准则
 
 1. 调用任何 🔐 接口前,先注册/登录拿 token,放入 `Authorization` 头
 2. 判断成功看 `code == 0`,不要只看 HTTP 200(业务错误 HTTP 也是 400/401/403)

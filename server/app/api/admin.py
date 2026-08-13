@@ -9,6 +9,7 @@ from app.core.deps import get_current_admin, get_db
 from app.core.errors import AppError, ok
 from app.core.security import create_admin_token, is_admin_token
 from app.schemas import (
+    AdminAiConfigPayload,
     AdminClockPayload,
     AdminConfigValue,
     AdminCropPayload,
@@ -17,7 +18,7 @@ from app.schemas import (
     AdminStatusRequest,
     AdminTermDuration,
 )
-from app.services import admin_service
+from app.services import admin_service, ai_service
 from app.ws.terminal import bridge
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -196,6 +197,41 @@ def clock_update(
             reset_epoch=req.reset_epoch,
         )
     )
+
+
+# ---------- AI 设置与用量 ----------
+
+@router.get("/ai/config")
+def ai_config(admin: str = Depends(get_current_admin), db: Session = Depends(get_db)):
+    """AI 配置(api_key 脱敏)。"""
+    return ok(ai_service.masked_config(db))
+
+
+@router.put("/ai/config")
+def ai_config_save(
+    req: AdminAiConfigPayload,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """保存 AI 配置(服务器地址 / API Key / 模型 / 开关)。"""
+    return ok(ai_service.save_ai_config(db, req.model_dump(exclude_none=True)))
+
+
+@router.post("/ai/test")
+async def ai_test(admin: str = Depends(get_current_admin), db: Session = Depends(get_db)):
+    """测试 AI 连接:拉取上游模型列表。"""
+    return ok(await ai_service.list_models(db))
+
+
+@router.get("/ai/usage")
+def ai_usage(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """全服每用户 AI 用量。"""
+    return ok(ai_service.admin_usage(db, page, page_size))
 
 
 @router.websocket("/terminal")

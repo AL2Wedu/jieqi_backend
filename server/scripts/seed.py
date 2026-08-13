@@ -9,7 +9,7 @@ from pathlib import Path
 
 from sqlalchemy.orm import Session
 
-from app.models import Crop, GameClock, Item, TermConfig
+from app.models import Achievement, Crop, GameClock, Item, Quest, TermConfig
 
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
@@ -26,14 +26,64 @@ def item_uuid(code: str) -> uuid.UUID:
     return uuid.uuid5(uuid.NAMESPACE_URL, f"item:{code}")
 
 
+def quest_uuid(code: str) -> uuid.UUID:
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"quest:{code}")
+
+
+def achievement_uuid(code: str) -> uuid.UUID:
+    return uuid.uuid5(uuid.NAMESPACE_URL, f"achievement:{code}")
+
+
 _ART: dict = {}
 
 
 def seed_if_empty(db: Session) -> bool:
-    """仅在 term_config 为空时导入;返回是否执行了导入。"""
-    if db.query(TermConfig).count() > 0:
-        return False
+    """幂等导入;返回是否执行了导入(各域独立判断)。"""
+    seeded = False
 
+    if db.query(TermConfig).count() == 0:
+        _seed_base(db)
+        seeded = True
+
+    if db.query(Quest).count() == 0:
+        for q in _load("quests.json"):
+            db.add(
+                Quest(
+                    id=quest_uuid(q["code"]),
+                    code=q["code"],
+                    name=q["name"],
+                    description=q.get("description"),
+                    category=q.get("category", "daily"),
+                    objective=q["objective"],
+                    reward=q.get("reward"),
+                    sort_order=q.get("sort_order", 0),
+                )
+            )
+        seeded = True
+
+    if db.query(Achievement).count() == 0:
+        for a in _load("achievements.json"):
+            db.add(
+                Achievement(
+                    id=achievement_uuid(a["code"]),
+                    code=a["code"],
+                    name=a["name"],
+                    description=a.get("description"),
+                    category=a.get("category", "成长"),
+                    target=a.get("target"),
+                    reward=a.get("reward"),
+                    sort_order=a.get("sort_order", 0),
+                )
+            )
+        seeded = True
+
+    if seeded:
+        db.commit()
+    return seeded
+
+
+def _seed_base(db: Session) -> None:
+    """基础数据:节气 / 作物 / 道具 / 游戏时钟。"""
     # 生成 6 种初始作物的美术资产(SVG),写入 static/assets/crops/<slug>/
     from app.core.svg_art import generate_all
 
@@ -85,9 +135,6 @@ def seed_if_empty(db: Session) -> bool:
 
     if db.query(GameClock).count() == 0:
         db.add(GameClock(id=1, epoch=datetime.now(timezone.utc), time_scale=1.0))
-
-    db.commit()
-    return True
 
 
 def main() -> None:

@@ -1,0 +1,47 @@
+[
+  {
+    "code": "q_sow_3",
+    "name": "春耕三亩",
+    "description": "累计播种 3 株作物",
+    "category": "daily",
+    "objective": {"type": "sow", "count": 3},
+    "reward": {"coins": 30, "exp": 5},
+    "sort_order": 1
+  },
+  {
+    "code": "q_harvest_1",
+    "name": "第一次丰收",
+    "description": "收获 1 株作物",
+    "category": "daily",
+    "objective": {"type": "harvest", "count": 1},
+    "reward": {"coins": 20, "exp": 5, "items": [{"code": "fertilizer", "quantity": 1}]},
+    "sort_order": 2
+  },
+  {
+    "code": "q_spend_100",
+    "name": "集市常客",
+    "description": "累计消费 100 金币",
+    "category": "daily",
+    "objective": {"type": "spend_coins", "amount": 100},
+    "reward": {"coins": 10, "items": [{"code": "water_pot", "quantity": 1}]},
+    "sort_order": 3
+  },
+  {
+    "code": "q_friend_1",
+    "name": "广结善缘",
+    "description": "拥有 1 位好友",
+    "category": "once",
+    "objective": {"type": "friend", "count": 1},
+    "reward": {"coins": 30, "exp": 10},
+    "sort_order": 4
+  },
+  {
+    "code": "q_ai_3",
+    "name": "问问节气老师",
+    "description": "向 AI 提问 3 次",
+    "category": "daily",
+    "objective": {"type": "counter", "key": "ai_requests", "count": 3},
+    "reward": {"coins": 15, "exp": 3},
+    "sort_order": 5
+  }
+]

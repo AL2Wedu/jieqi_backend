@@ -36,6 +36,17 @@ class DebugGrowRequest(BaseModel):
     plot_id: str
 
 
+class FriendRequest(BaseModel):
+    player_id: str
+
+
+class AdminAiConfigPayload(BaseModel):
+    enabled: bool | None = None
+    base_url: str | None = None
+    api_key: str | None = None
+    model: str | None = None
+
+
 # ---------- 管理后台 ----------
 
 class AdminLoginRequest(BaseModel):

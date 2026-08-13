@@ -167,6 +167,7 @@
     <button class="nav-btn" data-view="items" onclick="switchView('items')"><span class="nav-ico">🎒</span>道具管理</button>
     <button class="nav-btn" data-view="pricing" onclick="switchView('pricing')"><span class="nav-ico">¥</span>定价</button>
     <button class="nav-btn" data-view="terms" onclick="switchView('terms')"><span class="nav-ico">☀</span>节气设置</button>
+    <button class="nav-btn" data-view="ai" onclick="switchView('ai')"><span class="nav-ico">🤖</span>AI 设置</button>
     <div class="side-foot">
       <div class="mono" style="font-size:11px;color:var(--text-3)">PID 未知</div>
       <button class="btn small danger" style="margin-top:8px" onclick="logout()">退出登录</button>
@@ -235,7 +236,7 @@ function enterApp() {
 }
 
 /* ---------- 视图路由 ---------- */
-const views = { dashboard, users, config, crops, plantings, items, pricing, terms };
+const views = { dashboard, users, config, crops, plantings, items, pricing, terms, ai };
 function switchView(name) {
   state.view = name;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
@@ -633,6 +634,70 @@ function termRun(cmd) {
   else toast('终端未连接', 'err');
 }
 function toggleTerm() { $('#term-bar').classList.toggle('collapsed'); }
+
+/* ---------- AI 设置(服务器/API Key/模型 + 每用户用量) ---------- */
+async function ai(el) {
+  const cfg = await api('/ai/config');
+  el.innerHTML = `
+    <div class="page-head"><h1>AI 设置</h1><span class="mono">OpenAI 兼容上游转发 · 用量按玩家自动记录</span></div>
+    <div class="panel" style="max-width:680px">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
+        <input type="checkbox" id="ai-enabled" ${cfg.enabled ? 'checked' : ''}>
+        <label style="color:var(--text)">启用 AI 服务</label>
+      </div>
+      <div class="form-field"><label>API 服务器地址(base_url)</label>
+        <input class="inp mono" id="ai-base" value="${esc(cfg.base_url)}" placeholder="https://api.deepseek.com/v1"></div>
+      <div class="form-field"><label>API Key(保存后仅显示脱敏)</label>
+        <input class="inp mono" type="password" id="ai-key" value="${esc(cfg.api_key)}" placeholder="sk-..."></div>
+      <div class="form-field"><label>默认模型</label>
+        <input class="inp mono" id="ai-model" value="${esc(cfg.model)}" placeholder="deepseek-chat"></div>
+      <div style="display:flex;gap:8px;margin-top:16px">
+        <button class="btn primary" onclick="saveAiCfg()">保存配置</button>
+        <button class="btn" onclick="testAi()">测试连接</button>
+      </div>
+      <div id="ai-test-result" style="margin-top:12px;font-size:13px;color:var(--text-2);min-height:18px"></div>
+    </div>
+    <div class="page-head" style="margin-top:26px"><h2 style="font-size:15px;font-weight:600">每用户 AI 用量</h2><button class="btn small" onclick="loadAiUsage()">刷新</button></div>
+    <div class="panel"><table>
+      <thead><tr><th>玩家</th><th>请求数</th><th>Prompt tokens</th><th>Completion tokens</th><th>总 tokens</th></tr></thead>
+      <tbody id="ai-usage-body"><tr><td colspan="5" class="empty">加载中…</td></tr></tbody>
+    </table></div>`;
+  loadAiUsage();
+}
+async function loadAiUsage() {
+  try {
+    const d = await api('/ai/usage?page=1&page_size=50');
+    $('#ai-usage-body').innerHTML = d.items.map(u => `
+      <tr><td>${esc(u.name)}</td><td class="mono">${u.requests}</td>
+      <td class="mono">${u.prompt_tokens}</td><td class="mono">${u.completion_tokens}</td>
+      <td class="mono" style="color:var(--green)">${u.total_tokens}</td></tr>`).join('')
+      || '<tr><td colspan="5" class="empty">暂无用量数据</td></tr>';
+  } catch (e) {
+    $('#ai-usage-body').innerHTML = `<tr><td colspan="5" class="empty">${esc(e.message)}</td></tr>`;
+  }
+}
+async function saveAiCfg() {
+  try {
+    await api('/ai/config', 'PUT', {
+      enabled: $('#ai-enabled').checked,
+      base_url: $('#ai-base').value.trim(),
+      api_key: $('#ai-key').value.trim(),
+      model: $('#ai-model').value.trim() || undefined,
+    });
+    toast('AI 配置已保存');
+    loadView();
+  } catch (err) { toast(err.message, 'err'); }
+}
+async function testAi() {
+  const box = $('#ai-test-result');
+  box.textContent = '测试中…';
+  try {
+    const d = await api('/ai/test', 'POST');
+    box.innerHTML = `✅ 连接成功,上游模型 ${d.models.length} 个: <span class="mono">${esc(d.models.slice(0, 8).join(', '))}</span>`;
+  } catch (err) {
+    box.innerHTML = `❌ ${esc(err.message)}`;
+  }
+}
 
 /* ---------- 启动 ---------- */
 // 支持 #token=xxx 片段深链登录(片段不进服务器日志,便于开发/自动化验证)

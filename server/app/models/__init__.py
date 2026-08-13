@@ -107,12 +107,14 @@ class Achievement(Base):
     __tablename__ = "achievements"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    code: Mapped[str] = mapped_column(String(32), unique=True)
     name: Mapped[str] = mapped_column(String(64))
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
     category: Mapped[str] = mapped_column(String(16))
-    target: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    target: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # 通用条件(见 goal_service)
     reward: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     hidden: Mapped[bool] = mapped_column(Boolean, default=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
@@ -124,6 +126,7 @@ class UserAchievement(Base):
     progress: Mapped[dict] = mapped_column(JSON, default=dict)
     completed: Mapped[bool] = mapped_column(Boolean, default=False)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 # ---------- 农田与作物 ----------
@@ -280,6 +283,66 @@ class GameConfig(Base):
     key: Mapped[str] = mapped_column(String(64), primary_key=True)
     value: Mapped[dict | list | str | int | float | bool | None] = mapped_column(JSON)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+# ---------- 任务 / 社交 / AI 用量 ----------
+
+
+class Quest(Base):
+    __tablename__ = "quests"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    code: Mapped[str] = mapped_column(String(32), unique=True)
+    name: Mapped[str] = mapped_column(String(64))
+    description: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    category: Mapped[str] = mapped_column(String(16), default="daily")  # daily/once/story
+    objective: Mapped[dict] = mapped_column(JSON, default=dict)  # 通用条件 {"type":"sow","count":3}
+    reward: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # {"coins":50,"exp":10,"items":[...]}
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserQuest(Base):
+    __tablename__ = "user_quests"
+    __table_args__ = (UniqueConstraint("player_id", "quest_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), index=True)
+    quest_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("quests.id"))
+    status: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0进行中 1已完成 2已领取
+    progress: Mapped[dict] = mapped_column(JSON, default=dict)
+    accepted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Friendship(Base):
+    __tablename__ = "friendships"
+
+    player_a: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), primary_key=True)  # 排序后的较小 id
+    player_b: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), primary_key=True)  # 排序后的较大 id
+    requester: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"))  # 发起方
+    status: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0待确认 1好友 2已拒绝
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    responded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AiUsage(Base):
+    __tablename__ = "ai_usage"
+    __table_args__ = (UniqueConstraint("player_id", "model", "stat_date"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), index=True)
+    model: Mapped[str] = mapped_column(String(64), default="")
+    stat_date: Mapped[str] = mapped_column(String(10))  # YYYY-MM-DD
+    requests: Mapped[int] = mapped_column(Integer, default=0)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    total_tokens: Mapped[int] = mapped_column(Integer, default=0)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
