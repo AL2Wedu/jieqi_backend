@@ -10,6 +10,12 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def _client_ip(request: Request) -> str | None:
+    """取客户端真实 IP:优先 X-Forwarded-For(反代后),回退直连地址。"""
+    xff = request.headers.get("x-forwarded-for")
+    if xff:
+        first = xff.split(",")[0].strip()
+        if first:
+            return first
     return request.client.host if request.client else None
 
 

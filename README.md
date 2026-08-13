@@ -13,7 +13,7 @@
 
 ### 账号与玩家
 - **注册 / 登录**:名字 + 密码(demo 形态),PBKDF2 密码哈希,JWT 签发(7 天)
-- **IP 记录**:注册 IP / 最近登录 IP(`users.register_ip / last_login_ip`)
+- **IP 记录与地理位置**:注册 IP / 最近登录 IP(`users.register_ip / last_login_ip`)+ **ip2region 离线库解析**(`register_location / last_login_location`,零外部请求,内网→"内网",库缺失优雅降级)
 - **封禁 / 解封**:管理后台操作,封禁后无法登录
 - **玩家资产**:等级 / 经验 / 金币 / 农场(4×5=20 地块)/ 背包
 

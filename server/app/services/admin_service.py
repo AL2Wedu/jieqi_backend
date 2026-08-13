@@ -100,7 +100,9 @@ def list_users(db: Session, page: int, page_size: int) -> dict:
                 "name": u.name,
                 "status": u.status,
                 "register_ip": u.register_ip,
+                "register_location": u.register_location,
                 "last_login_ip": u.last_login_ip,
+                "last_login_location": u.last_login_location,
                 "created_at": u.created_at.isoformat(),
                 "last_login_at": u.last_login_at.isoformat() if u.last_login_at else None,
                 "player": (

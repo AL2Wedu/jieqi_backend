@@ -176,12 +176,15 @@
     "head_title_id": null,
     "unlocked_term_index": 1,
     "farm_id": "1a2b...",
-    "plot_count": 20
-  }
+    "plot_count": 20,
+    "register_location": "浙江省 杭州市 阿里",
+    "last_login_location": null
+    }
 }
 ```
 
 > 注册副作用:自动创建玩家(初始金币 **200**)、农场(20 地块,4 列 × 5 行)、`coin_transactions` 记 `register` 账。
+> **IP 与地理位置**:客户端 IP 优先取 `X-Forwarded-For`(反代后),回退直连地址;注册/登录时用 ip2region 离线库解析地理位置(`register_location` / `last_login_location`),库缺失或内网地址降级为 `"内网"`/`null`,**无任何外部请求**。
 
 **错误**:`20001 USER_EXISTS`(用户名已存在)、`10001 INVALID_PARAMS`(参数不合法)
 

@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
+from app.core.iploc import resolve as resolve_location
 from app.core.security import create_token, hash_password, verify_password
 from app.models import CoinTransaction, Farm, Player, Plot, User
 
@@ -10,10 +11,10 @@ START_COINS = 200
 START_PLOTS = 20  # 田地格子:横 4 × 竖 5
 
 
-def player_summary(player: Player, farm: Farm | None, name: str) -> dict:
+def player_summary(player: Player, farm: Farm | None, user: User) -> dict:
     return {
         "player_id": str(player.id),
-        "name": name,
+        "name": user.name,
         "level": player.level,
         "exp": player.exp,
         "coins": player.coins,
@@ -21,13 +22,20 @@ def player_summary(player: Player, farm: Farm | None, name: str) -> dict:
         "unlocked_term_index": player.unlocked_term_index,
         "farm_id": str(farm.id) if farm else None,
         "plot_count": farm.plot_count if farm else 0,
+        "register_location": user.register_location,
+        "last_login_location": user.last_login_location,
     }
 
 
 def register(db: Session, name: str, password: str, ip: str | None) -> dict:
     if db.query(User).filter(User.name == name).first():
         raise AppError("USER_EXISTS", "用户名已存在", code=20001)
-    user = User(name=name, password_hash=hash_password(password), register_ip=ip)
+    user = User(
+        name=name,
+        password_hash=hash_password(password),
+        register_ip=ip,
+        register_location=resolve_location(ip),
+    )
     db.add(user)
     db.flush()
     player = Player(user_id=user.id, coins=START_COINS)
@@ -42,7 +50,7 @@ def register(db: Session, name: str, password: str, ip: str | None) -> dict:
     db.commit()
     return {
         "token": create_token(str(user.id)),
-        "player": player_summary(player, farm, name),
+        "player": player_summary(player, farm, user),
     }
 
 
@@ -54,10 +62,11 @@ def login(db: Session, name: str, password: str, ip: str | None) -> dict:
         raise AppError("USER_BANNED", "账号已被封禁", http_status=403, code=20004)
     user.last_login_at = datetime.now(timezone.utc)
     user.last_login_ip = ip
+    user.last_login_location = resolve_location(ip)
     player = db.query(Player).filter(Player.user_id == user.id).first()
     farm = db.query(Farm).filter(Farm.owner_id == player.id).first()
     db.commit()
     return {
         "token": create_token(str(user.id)),
-        "player": player_summary(player, farm, user.name),
+        "player": player_summary(player, farm, user),
     }

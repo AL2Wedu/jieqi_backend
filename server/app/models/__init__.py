@@ -46,9 +46,11 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
     name: Mapped[str] = mapped_column(String(32), unique=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255))
-    status: Mapped[int] = mapped_column(SmallInteger, default=1)
+    status: Mapped[int] = mapped_column(SmallInteger, default=1)  # 1正常 0封禁
     register_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     last_login_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    register_location: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    last_login_location: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
