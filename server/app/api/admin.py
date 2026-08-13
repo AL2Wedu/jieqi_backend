@@ -1,6 +1,5 @@
 import asyncio
 import json
-import threading
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
@@ -200,35 +199,13 @@ async def terminal_ws(websocket: WebSocket, token: str = Query(default="")):
         await websocket.close()
         return
 
-    queue: asyncio.Queue = asyncio.Queue()
-
-    def on_data(text: str) -> None:
-        try:
-            queue.put_nowait({"type": "data", "data": text})
-        except Exception:
-            pass
-
-    def read_loop() -> None:
-        while True:
-            try:
-                chunk = bridge.proc.read()
-                if not chunk:
-                    break
-                text = (
-                    chunk.decode("utf-8", errors="replace")
-                    if isinstance(chunk, bytes)
-                    else chunk
-                )
-                on_data(text)
-            except Exception:
-                break
-
-    threading.Thread(target=read_loop, daemon=True).start()
+    loop = asyncio.get_running_loop()
+    queue = bridge.subscribe(loop)
 
     async def sender() -> None:
         while True:
-            msg = await queue.get()
-            await websocket.send_json(msg)
+            text = await queue.get()
+            await websocket.send_json({"type": "data", "data": text})
 
     sender_task = asyncio.create_task(sender())
     try:
@@ -247,3 +224,4 @@ async def terminal_ws(websocket: WebSocket, token: str = Query(default="")):
         pass
     finally:
         sender_task.cancel()
+        bridge.unsubscribe(queue)
