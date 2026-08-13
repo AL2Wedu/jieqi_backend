@@ -79,6 +79,11 @@ def test_config_crud(client):
 
 def test_crops_crud(client):
     _, h = _admin_login(client)
+    # 商店检查需要玩家视角(每用户隔离)
+    pr = client.post(
+        "/v1/auth/register", json={"name": "crop_shop_check", "password": "pass123456"}
+    ).json()
+    ph = {"Authorization": f"Bearer {pr['data']['token']}"}
     r = client.get("/v1/admin/crops", headers=h).json()
     assert r["code"] == 0 and len(r["data"]["items"]) >= 6
 
@@ -104,8 +109,8 @@ def test_crops_crud(client):
     assert art["seed"].endswith("seed.svg")
     assert len(art["stages"]) == 3 and all(s.endswith(".svg") for s in art["stages"])
 
-    # 商店出现萝卜种子
-    shop = client.get("/v1/shop/items").json()["data"]["items"]
+    # 商店出现萝卜种子(玩家视角)
+    shop = client.get("/v1/shop/items", headers=ph).json()["data"]["items"]
     assert any(
         i["name"] == "萝卜种子" and i["effect"]["crop_id"] == crop_id for i in shop
     )
@@ -116,10 +121,10 @@ def test_crops_crud(client):
     ).json()
     assert r["code"] == 0 and r["data"]["base_price"] == 18
 
-    # 软删 → 商店种子消失
+    # 软删 → 商店种子消失(玩家视角)
     r = client.delete(f"/v1/admin/crops/{crop_id}", headers=h).json()
     assert r["code"] == 0 and r["data"]["active"] is False
-    shop = client.get("/v1/shop/items").json()["data"]["items"]
+    shop = client.get("/v1/shop/items", headers=ph).json()["data"]["items"]
     assert not any(i["name"] == "萝卜种子" for i in shop)
 
 
@@ -173,7 +178,7 @@ def test_plantings_view(client):
         if 5 <= cal["term_index"] <= 9:
             break
         client.post("/v1/debug/term/advance", headers=ph)
-    shop = client.get("/v1/shop/items").json()["data"]["items"]
+    shop = client.get("/v1/shop/items", headers=ph).json()["data"]["items"]
     seed = next(i for i in shop if i["code"] == "seed_rice")
     client.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=ph)
     plot = client.get("/v1/farm/state", headers=ph).json()["data"]["plots"][0]["plot_id"]

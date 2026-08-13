@@ -167,6 +167,7 @@
     <button class="nav-btn" data-view="items" onclick="switchView('items')"><span class="nav-ico">🎒</span>道具管理</button>
     <button class="nav-btn" data-view="pricing" onclick="switchView('pricing')"><span class="nav-ico">¥</span>定价</button>
     <button class="nav-btn" data-view="terms" onclick="switchView('terms')"><span class="nav-ico">☀</span>节气设置</button>
+    <button class="nav-btn" data-view="shop" onclick="switchView('shop')"><span class="nav-ico">🛒</span>商店管理</button>
     <button class="nav-btn" data-view="ai" onclick="switchView('ai')"><span class="nav-ico">🤖</span>AI 设置</button>
     <div class="side-foot">
       <div class="mono" style="font-size:11px;color:var(--text-3)">PID 未知</div>
@@ -236,7 +237,7 @@ function enterApp() {
 }
 
 /* ---------- 视图路由 ---------- */
-const views = { dashboard, users, config, crops, plantings, items, pricing, terms, ai };
+const views = { dashboard, users, config, crops, plantings, items, pricing, terms, shop, ai };
 function switchView(name) {
   state.view = name;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
@@ -697,6 +698,106 @@ async function testAi() {
   } catch (err) {
     box.innerHTML = `❌ ${esc(err.message)}`;
   }
+}
+
+/* ---------- 商店管理(全局默认 + 每用户商店) ---------- */
+async function shop(el) {
+  const s = await api('/shop/settings');
+  const se = s.season_effect || {}, cf = s.category_factor || {};
+  el.innerHTML = `
+    <div class="page-head"><h1>商店管理</h1><span class="mono">每用户独立商店 · 季节涨降 · 补货周期</span></div>
+    <div class="panel" style="max-width:760px">
+      <h2 style="font-size:15px;font-weight:600;margin-bottom:12px">全局默认(新商店/补货基准)</h2>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+        <div class="form-field"><label>默认库存</label><input class="inp mono" id="s-stock" type="number" value="${s.default_stock}"></div>
+        <div class="form-field"><label>补货周期(秒)</label><input class="inp mono" id="s-restock" type="number" value="${s.restock_seconds}"></div>
+        <div class="form-field"><label>卖出系数(作物收购)</label><input class="inp mono" id="s-sellf" type="number" step="0.05" value="${s.sell_factor}"></div>
+        <div class="form-field"><label>道具售价系数</label><input class="inp mono" id="s-itemf" type="number" step="0.05" value="${s.item_factor}"></div>
+        <div class="form-field"><label>春系数</label><input class="inp mono" id="s-sp" type="number" step="0.05" value="${se.spring || 1}"></div>
+        <div class="form-field"><label>夏系数</label><input class="inp mono" id="s-su" type="number" step="0.05" value="${se.summer || 1}"></div>
+        <div class="form-field"><label>秋系数</label><input class="inp mono" id="s-au" type="number" step="0.05" value="${se.autumn || 1}"></div>
+        <div class="form-field"><label>冬系数</label><input class="inp mono" id="s-wi" type="number" step="0.05" value="${se.winter || 1}"></div>
+        <div class="form-field"><label>谷物系数</label><input class="inp mono" id="s-c1" type="number" step="0.05" value="${cf['谷物'] || 1}"></div>
+        <div class="form-field"><label>蔬菜系数</label><input class="inp mono" id="s-c2" type="number" step="0.05" value="${cf['蔬菜'] || 1}"></div>
+        <div class="form-field"><label>花卉系数</label><input class="inp mono" id="s-c3" type="number" step="0.05" value="${cf['花卉'] || 1}"></div>
+      </div>
+      <div style="margin-top:14px"><button class="btn primary" onclick="saveShopSettings()">保存全局默认</button></div>
+    </div>
+    <div class="page-head" style="margin-top:22px"><h2 style="font-size:15px;font-weight:600">每用户商店</h2><button class="btn small" onclick="loadShopUsers()">刷新</button></div>
+    <div class="panel"><table>
+      <thead><tr><th>玩家</th><th>状态</th><th>商品数</th><th>总库存</th><th>覆盖数</th><th>上次补货</th><th>操作</th></tr></thead>
+      <tbody id="shop-users-body"><tr><td colspan="7" class="empty">加载中…</td></tr></tbody>
+    </table></div>`;
+  loadShopUsers();
+}
+async function loadShopUsers() {
+  try {
+    const d = await api('/shop/users?page=1&page_size=50');
+    $('#shop-users-body').innerHTML = d.items.map(u => `
+      <tr><td>${esc(u.name)}</td><td>${u.status === 1 ? '正常' : '<span style="color:var(--danger)">封禁</span>'}</td>
+      <td class="mono">${u.item_count}</td><td class="mono">${u.total_stock}</td>
+      <td class="mono">${u.override_count}</td><td class="mono">${u.restocked_at ? esc(u.restocked_at.slice(0, 19)) : '未创建'}</td>
+      <td>
+        <button class="btn small" onclick="openShopUser('${u.player_id}', '${esc(u.name)}')">商品管理</button>
+        <button class="btn small" onclick="restockShopUser('${u.player_id}', '${esc(u.name)}')">补货</button>
+      </td></tr>`).join('') || '<tr><td colspan="7" class="empty">暂无用户</td></tr>';
+  } catch (e) { $('#shop-users-body').innerHTML = `<tr><td colspan="7" class="empty">${esc(e.message)}</td></tr>`; }
+}
+async function saveShopSettings() {
+  try {
+    await api('/shop/settings', 'PUT', {
+      default_stock: parseInt($('#s-stock').value) || 5,
+      restock_seconds: parseInt($('#s-restock').value) || 300,
+      sell_factor: parseFloat($('#s-sellf').value) || 0.8,
+      item_factor: parseFloat($('#s-itemf').value) || 1,
+      season_effect: { spring: parseFloat($('#s-sp').value) || 1, summer: parseFloat($('#s-su').value) || 1, autumn: parseFloat($('#s-au').value) || 1, winter: parseFloat($('#s-wi').value) || 1 },
+      category_factor: { '谷物': parseFloat($('#s-c1').value) || 1, '蔬菜': parseFloat($('#s-c2').value) || 1, '花卉': parseFloat($('#s-c3').value) || 1 },
+    });
+    toast('全局默认已保存');
+  } catch (err) { toast(err.message, 'err'); }
+}
+async function restockShopUser(pid, name) {
+  try {
+    await api(`/shop/users/${pid}/restock`, 'POST');
+    toast(`${name} 商店已补货`);
+    loadShopUsers();
+  } catch (err) { toast(err.message, 'err'); }
+}
+async function openShopUser(pid, name) {
+  const d = await api(`/shop/users/${pid}/items`);
+  openModal(`
+    <h3>${esc(name)} · 商店商品</h3>
+    <div style="max-height:60vh;overflow:auto">
+    <table>
+      <thead><tr><th>商品</th><th>公式价</th><th>当前价</th><th>库存</th><th>买入覆盖</th><th>卖出覆盖</th><th>操作</th></tr></thead>
+      <tbody>
+        ${d.items.map(i => `<tr>
+          <td>${esc(i.name)}</td>
+          <td class="mono">${i.formula_price}</td>
+          <td class="mono" style="color:var(--green)">${i.buy_price}</td>
+          <td><input class="inp mono si-stock" data-iid="${i.item_id}" type="number" value="${i.stock}" style="width:64px"></td>
+          <td><input class="inp mono si-buy" data-iid="${i.item_id}" type="number" placeholder="空=公式" value="${i.buy_override ?? ''}" style="width:80px"></td>
+          <td><input class="inp mono si-sell" data-iid="${i.item_id}" type="number" placeholder="空=公式" value="${i.sell_override ?? ''}" style="width:80px"></td>
+          <td><button class="btn small" onclick="saveShopItem('${pid}', '${i.item_id}')">保存</button></td>
+        </tr>`).join('') || '<tr><td colspan="7" class="empty">暂无商品</td></tr>'}
+      </tbody>
+    </table>
+    </div>`);
+}
+async function saveShopItem(pid, iid) {
+  const stock = parseInt(document.querySelector(`.si-stock[data-iid="${iid}"]`).value);
+  const buyRaw = document.querySelector(`.si-buy[data-iid="${iid}"]`).value;
+  const sellRaw = document.querySelector(`.si-sell[data-iid="${iid}"]`).value;
+  try {
+    await api(`/shop/users/${pid}/items/${iid}`, 'PUT', {
+      stock: isNaN(stock) ? undefined : stock,
+      buy_price: buyRaw === '' ? null : parseInt(buyRaw),
+      sell_price: sellRaw === '' ? null : parseInt(sellRaw),
+    });
+    toast('已保存(空覆盖=恢复公式价)');
+    openShopUser(pid, '');
+    loadShopUsers();
+  } catch (err) { toast(err.message, 'err'); }
 }
 
 /* ---------- 启动 ---------- */

@@ -57,8 +57,8 @@ def test_full_flow(client):
     assert len(plots) == 20  # 4 列 × 5 行
     plot_id = plots[0]["plot_id"]
 
-    # 商店
-    r = client.get("/v1/shop/items").json()
+    # 商店(需登录:每用户隔离)
+    r = client.get("/v1/shop/items", headers=h).json()
     assert r["code"] == 0
     items = {i["code"]: i for i in r["data"]["items"]}
     seed = items["seed_rice"]
@@ -86,13 +86,25 @@ def test_full_flow(client):
     r = client.post(f"/v1/farm/plots/{plot_id}/harvest", headers=h).json()
     assert r["code"] != 0
 
-    # debug 催熟 → 收获
+    # debug 催熟 → 收获(入收成仓,不再直接结算金币)
     r = client.post("/v1/debug/grow", json={"plot_id": plot_id}, headers=h).json()
     assert r["code"] == 0
-    r = client.post(f"/v1/farm/plots/{plot_id}/harvest", headers=h).json()
-    assert r["code"] == 0, r
-    assert r["data"]["yield"] > 0 and r["data"]["coins_earned"] > 0
-    assert r["data"]["coins_balance"] > coins_after_buy
+    hv = client.post(f"/v1/farm/plots/{plot_id}/harvest", headers=h).json()
+    assert hv["code"] == 0, hv
+    assert hv["data"]["yield"] > 0 and hv["data"]["storage_after"] == hv["data"]["yield"]
+
+    # 收成仓可见 → 出售(按当前季节收购价)金币增加
+    r = client.get("/v1/shop/storage", headers=h).json()
+    assert r["code"] == 0
+    mine = [i for i in r["data"]["items"] if i["name"] == "水稻"]
+    assert mine and mine[0]["quantity"] == hv["data"]["yield"]
+    r = client.post(
+        f"/v1/shop/crops/{crop_id}/sell",
+        json={"quantity": mine[0]["quantity"]},
+        headers=h,
+    ).json()
+    assert r["code"] == 0
+    assert r["data"]["price"] > 0 and r["data"]["coins_balance"] > coins_after_buy
 
     # 再播种(消耗第 2 颗种子)→ 用肥料加速
     r = client.post(f"/v1/farm/plots/{plot_id}/sow", json={"crop_id": crop_id}, headers=h).json()

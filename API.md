@@ -69,10 +69,13 @@
 | 7 | GET | `/v1/farm/state` | 🔐 | 农场全量状态(4×5=20 地块 + 每格作物状态) |
 | 8 | POST | `/v1/farm/plots/{plot_id}/sow` | 🔐 | 播种(校验节气窗 + 消耗种子) |
 | 9 | POST | `/v1/farm/plots/{plot_id}/water` | 🔐 | 浇水(water_level → 100) |
-| 10 | POST | `/v1/farm/plots/{plot_id}/harvest` | 🔐 | 收获结算(产量×单价 → 金币) |
+| 10 | POST | `/v1/farm/plots/{plot_id}/harvest` | 🔐 | 收获(产量入收成仓,择机出售) |
 | 11 | POST | `/v1/farm/plots/{plot_id}/clear` | 🔐 | 铲除作物(清空地块) |
-| 12 | GET | `/v1/shop/items` | 🔓 | 商品列表(静态价 + effect) |
-| 13 | POST | `/v1/shop/items/{item_id}/buy` | 🔐 | 购买道具(扣金币,双账本) |
+| 12 | GET | `/v1/shop/state` | 🔐 | **我的商店**:商品(库存/售价)+ 作物收购价(季节涨降) |
+| 12a | GET | `/v1/shop/items` | 🔐 | 商品列表(兼容,= state.items) |
+| 13 | POST | `/v1/shop/items/{item_id}/buy` | 🔐 | 购买(扣库存,售空拒绝;双账本) |
+| 13a | GET | `/v1/shop/storage` | 🔐 | 收成仓(收获入仓 + 当前收购价) |
+| 13b | POST | `/v1/shop/crops/{crop_id}/sell` | 🔐 | 出售农作物(按季节/分类收购价结算) |
 
 ### 2.2 扩展功能:任务 / 社交 / 成就 / AI(玩家端)
 
@@ -125,6 +128,13 @@
 | 34 | GET | `/v1/admin/terms` | 24 节气时长 + 游戏时钟 |
 | 35 | PUT | `/v1/admin/terms/{term_index}` | 设置节气时长 `{"duration_seconds": 300}` |
 | 36 | PUT | `/v1/admin/clock` | 时钟:倍速/暂停/纪元重置 |
+| 36e | GET | `/v1/admin/shop/settings` | 全局商店默认(库存/补货/价格系数) |
+| 36f | PUT | `/v1/admin/shop/settings` | 保存全局商店默认 |
+| 36g | GET | `/v1/admin/shop/users?page` | 每用户商店摘要(隔离实例) |
+| 36h | GET | `/v1/admin/shop/users/{pid}/items` | 某用户商店商品明细(库存/价格/覆盖) |
+| 36i | PUT | `/v1/admin/shop/users/{pid}/items/{iid}` | 覆盖库存/买卖价(显式 null 恢复公式价) |
+| 36j | POST | `/v1/admin/shop/users/{pid}/restock` | 手动补货(重置为默认库存) |
+| 36k | POST | `/v1/admin/shop/users/{pid}/reset` | 重置商店(清覆盖 + 默认库存) |
 
 **管理后台 AI 端点**:
 
@@ -616,6 +626,28 @@
 - **GET /v1/ai/usage** → `{total: {requests, prompt_tokens, completion_tokens, total_tokens}, by_day: [...]}`
 - **GET /v1/admin/ai/usage** → 全服每用户用量(按玩家聚合)
 
+### 3.10 商店(每用户独立 · 季节涨降)
+
+**隔离**:每个玩家一个商店实例(`user_shops` + `user_shop_items`),库存/价格互不影响;首次访问自动初始化(全部在售道具,库存=全局默认)。
+
+**定价公式**(管理端全局可调):
+```
+道具/种子售价 = item.buy_price × shop_settings.item_factor
+作物收购价   = crop.base_price × sell_factor × season_effect[季节] × category_factor[分类]
+季节:节气 1-6 春 / 7-12 夏 / 13-18 秋 / 19-24 冬(默认系数 春1.1 夏1.0 秋1.2 冬0.9)
+覆盖:管理端可对单用户单商品设 buy_price/sell_price(显式 null 恢复公式价)
+```
+
+**补货**:`restocked_at + restock_seconds` 到点后全量重置库存为默认(读取时惰性触发);管理端可手动补货。**售空**:库存 0 时购买返回 `22006 NOT_ENOUGH_STOCK`。
+
+**收成仓**:收获不再直接结算金币,产量入 `crop_storage`;玩家择机出售吃季节涨降:
+- `POST /v1/shop/crops/{id}/sell {quantity}` → `{crop_id, name, quantity, price, unit_price, storage_after, coins_balance}`
+- 收成仓与收购价:`GET /v1/shop/storage` → `{season, items:[{crop_id, name, quantity, sell_price, season}]}`
+
+**GET /v1/shop/state** → `{season, restocked, restock_seconds, items:[{item_id, code, name, category, effect, stock, buy_price, sell_price}], crop_quotes:[{crop_id, name, category, base_price, sell_price, season, season_factor}]}`
+
+**harvest 响应**(已变更):`{plot_id, crop_id, crop_name, yield, storage_after, note}`(不再含 coins_earned)。
+
 ---
 
 ## 7. WebSocket 协议
@@ -718,6 +750,8 @@ GET /v1/art/crops/{slug}/{seed|1|2|3}.png?w=<目标像素>
 | 22003 | NOT_ENOUGH_COINS | 400 | 金币不足 |
 | 22004 | EFFECT_NOT_SUPPORTED | 400 | 效果不支持(种子走播种/节气卡开发中) |
 | 22005 | ITEM_EXISTS | 400 | 道具 code 已存在 |
+| 22006 | NOT_ENOUGH_STOCK | 400 | 商店库存不足(可售空) |
+| 22007 | NOT_ENOUGH_CROP | 400 | 收成仓数量不足 |
 | 23001 | CROP_NOT_MATURE | 400 | 作物尚未成熟 |
 | 23002 | TERM_NOT_FOUND | 400 | 节气不存在(管理端) |
 | 24001 | AI_DISABLED | 400 | AI 服务未启用 |

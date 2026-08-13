@@ -40,11 +40,30 @@ class FriendRequest(BaseModel):
     player_id: str
 
 
+class SellCropRequest(BaseModel):
+    quantity: int = 1
+
+
 class AdminAiConfigPayload(BaseModel):
     enabled: bool | None = None
     base_url: str | None = None
     api_key: str | None = None
     model: str | None = None
+
+
+class AdminShopSettingsPayload(BaseModel):
+    default_stock: int | None = None
+    restock_seconds: int | None = None
+    sell_factor: float | None = None
+    item_factor: float | None = None
+    season_effect: dict | None = None
+    category_factor: dict | None = None
+
+
+class AdminUserShopItemPayload(BaseModel):
+    stock: int | None = None
+    buy_price: int | None = None
+    sell_price: int | None = None
 
 
 # ---------- 管理后台 ----------

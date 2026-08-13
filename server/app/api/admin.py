@@ -15,8 +15,10 @@ from app.schemas import (
     AdminCropPayload,
     AdminItemPayload,
     AdminLoginRequest,
+    AdminShopSettingsPayload,
     AdminStatusRequest,
     AdminTermDuration,
+    AdminUserShopItemPayload,
 )
 from app.services import admin_service, ai_service
 from app.ws.terminal import bridge
@@ -232,6 +234,81 @@ def ai_usage(
 ):
     """全服每用户 AI 用量。"""
     return ok(ai_service.admin_usage(db, page, page_size))
+
+
+# ---------- 商店管理(全局默认 + 每用户商店) ----------
+
+@router.get("/shop/settings")
+def shop_settings(admin: str = Depends(get_current_admin), db: Session = Depends(get_db)):
+    """全局商店默认(库存/补货周期/价格系数)。"""
+    return ok(admin_service.shop_settings_view(db))
+
+
+@router.put("/shop/settings")
+def shop_settings_save(
+    req: AdminShopSettingsPayload,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """保存全局商店默认。"""
+    return ok(admin_service.update_shop_settings(db, req.model_dump(exclude_none=True)))
+
+
+@router.get("/shop/users")
+def shop_users(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """每用户商店摘要(隔离实例)。"""
+    return ok(admin_service.list_user_shops(db, page, page_size))
+
+
+@router.get("/shop/users/{player_id}/items")
+def shop_user_items(
+    player_id: str,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """某用户商店的商品明细(库存/价格/覆盖)。"""
+    return ok(admin_service.list_user_shop_items(db, player_id))
+
+
+@router.put("/shop/users/{player_id}/items/{item_id}")
+def shop_user_item_update(
+    player_id: str,
+    item_id: str,
+    req: AdminUserShopItemPayload,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """覆盖某用户某商品:库存 / buy_price / sell_price(显式 null 清除覆盖,恢复公式价)。"""
+    return ok(
+        admin_service.update_user_shop_item(
+            db, player_id, item_id, req.model_dump(exclude_unset=True)
+        )
+    )
+
+
+@router.post("/shop/users/{player_id}/restock")
+def shop_user_restock(
+    player_id: str,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """手动补货:重置该用户商店全部库存为默认。"""
+    return ok(admin_service.restock_user_shop(db, player_id))
+
+
+@router.post("/shop/users/{player_id}/reset")
+def shop_user_reset(
+    player_id: str,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """重置该用户商店:清覆盖、恢复默认库存。"""
+    return ok(admin_service.reset_user_shop(db, player_id))
 
 
 @router.websocket("/terminal")

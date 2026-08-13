@@ -6,9 +6,9 @@ from sqlalchemy.orm import Session
 from app.core.errors import AppError
 from app.core.utils import ensure_aware
 from app.models import (
-    CoinTransaction,
     Crop,
     CropInstance,
+    CropStorage,
     Farm,
     Item,
     ItemTransaction,
@@ -208,7 +208,6 @@ def harvest(db: Session, player, plot_id: str) -> dict:
     if view["stage"] < 3:
         raise AppError("CROP_NOT_MATURE", "作物尚未成熟", code=23001)
     yield_actual = int(round(crop.yield_base * (1 + 0.1 * (plot.soil_quality - 1))))
-    coins = yield_actual * crop.base_price
     now = datetime.now(timezone.utc)
     ci.harvested_at = now
     ci.yield_actual = yield_actual
@@ -217,16 +216,28 @@ def harvest(db: Session, player, plot_id: str) -> dict:
         "soil_quality": plot.soil_quality,
         "yield": yield_actual,
     }
-    player.coins += coins
-    db.add(CoinTransaction(player_id=player.id, amount=coins, reason="harvest", ref_id=ci.id))
+    # 收成入仓(不直接结算金币):玩家到商店按当前季节价择机出售
+    st = (
+        db.query(CropStorage)
+        .filter(CropStorage.player_id == player.id, CropStorage.crop_id == crop.id)
+        .first()
+    )
+    if st:
+        st.quantity += yield_actual
+    else:
+        db.add(
+            CropStorage(
+                player_id=player.id, crop_id=crop.id, quantity=yield_actual
+            )
+        )
     db.commit()
     return {
         "plot_id": plot_id,
         "crop_id": str(crop.id),
         "crop_name": crop.name,
         "yield": yield_actual,
-        "coins_earned": coins,
-        "coins_balance": player.coins,
+        "storage_after": (st.quantity if st else yield_actual),
+        "note": "已入收成仓,可在商店按当前季节价出售",
     }
 
 

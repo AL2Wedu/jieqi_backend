@@ -348,3 +348,70 @@ class AiUsage(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+# ---------- 商店(每用户隔离)/ 收成仓 ----------
+
+
+class ShopSettings(Base):
+    """全局商店默认(单例 id=1),管理端可改:库存/补货周期/价格系数。"""
+
+    __tablename__ = "shop_settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    default_stock: Mapped[int] = mapped_column(Integer, default=5)
+    restock_seconds: Mapped[int] = mapped_column(Integer, default=300)
+    sell_factor: Mapped[float] = mapped_column(Float, default=0.8)  # 农作物收购价系数
+    item_factor: Mapped[float] = mapped_column(Float, default=1.0)  # 道具/种子售价系数
+    season_effect: Mapped[dict] = mapped_column(
+        JSON, default=lambda: {"spring": 1.1, "summer": 1.0, "autumn": 1.2, "winter": 0.9}
+    )
+    category_factor: Mapped[dict] = mapped_column(
+        JSON, default=lambda: {"谷物": 1.0, "蔬菜": 1.1, "花卉": 1.25}
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class UserShop(Base):
+    """每用户一个商店实例(隔离),记录上次补货时间。"""
+
+    __tablename__ = "user_shops"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), unique=True)
+    restocked_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class UserShopItem(Base):
+    """用户商店内的单个商品:库存(可售空)+ 管理端价格覆盖。"""
+
+    __tablename__ = "user_shop_items"
+    __table_args__ = (UniqueConstraint("player_id", "item_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), index=True)
+    item_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("items.id"))
+    stock: Mapped[int] = mapped_column(Integer, default=0)
+    buy_price: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 覆盖价(玩家买入)
+    sell_price: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 覆盖价(卖回给商店)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+
+
+class CropStorage(Base):
+    """收成仓:收获的作物先入仓,玩家可择机出售(价格随季节涨降)。"""
+
+    __tablename__ = "crop_storage"
+    __table_args__ = (UniqueConstraint("player_id", "crop_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), index=True)
+    crop_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("crops.id"))
+    quantity: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )

@@ -3,7 +3,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -19,7 +19,10 @@ from app.models import (
     Plot,
     TermConfig,
     User,
+    UserShop,
+    UserShopItem,
 )
+from app.services import shop_service
 from app.services import calendar_service, farm_service
 from scripts.seed import crop_uuid, item_uuid
 
@@ -470,3 +473,166 @@ def update_clock(
         "time_scale": float(clock.time_scale),
         "paused": clock.paused_at is not None,
     }
+
+
+# ---------- 商店管理(全局默认 + 每用户商店) ----------
+
+def shop_settings_view(db) -> dict:
+    s = shop_service.get_settings(db)
+    return {
+        "default_stock": s.default_stock,
+        "restock_seconds": s.restock_seconds,
+        "sell_factor": s.sell_factor,
+        "item_factor": s.item_factor,
+        "season_effect": s.season_effect or {},
+        "category_factor": s.category_factor or {},
+        "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+    }
+
+
+def update_shop_settings(db, data: dict) -> dict:
+    s = shop_service.get_settings(db)
+    for field in (
+        "default_stock",
+        "restock_seconds",
+        "sell_factor",
+        "item_factor",
+        "season_effect",
+        "category_factor",
+    ):
+        if field in data and data[field] is not None:
+            setattr(s, field, data[field])
+    db.commit()
+    return shop_settings_view(db)
+
+
+def list_user_shops(db, page: int, page_size: int) -> dict:
+    """全部用户的商店摘要(LEFT JOIN:未触发的用户也展示,counts 为 0)。"""
+    total = db.query(func.count(User.id)).scalar() or 0
+    rows = (
+        db.query(User, Player, UserShop)
+        .join(Player, Player.user_id == User.id)
+        .outerjoin(UserShop, UserShop.player_id == Player.id)
+        .order_by(User.id)
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    stat = {
+        pid: (cnt, stock)
+        for pid, cnt, stock in db.query(
+            UserShopItem.player_id,
+            func.count(UserShopItem.id),
+            func.coalesce(func.sum(UserShopItem.stock), 0),
+        )
+        .group_by(UserShopItem.player_id)
+        .all()
+    }
+    ovr = {
+        pid: cnt
+        for pid, cnt in db.query(
+            UserShopItem.player_id, func.count(UserShopItem.id)
+        )
+        .filter(
+            or_(
+                UserShopItem.buy_price.isnot(None),
+                UserShopItem.sell_price.isnot(None),
+            )
+        )
+        .group_by(UserShopItem.player_id)
+        .all()
+    }
+    items = []
+    for user, player, shop in rows:
+        cnt, stock = stat.get(player.id, (0, 0))
+        items.append(
+            {
+                "player_id": str(player.id),
+                "name": user.name,
+                "status": user.status,
+                "item_count": cnt,
+                "total_stock": stock,
+                "override_count": ovr.get(player.id, 0),
+                "restocked_at": shop.restocked_at.isoformat() if shop else None,
+                "created_at": shop.created_at.isoformat() if shop else None,
+            }
+        )
+    return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+def list_user_shop_items(db, player_id: str) -> dict:
+    try:
+        pid = uuid.UUID(player_id)
+    except ValueError:
+        raise AppError("USER_NOT_FOUND", "用户不存在", code=20002)
+    s = shop_service.get_settings(db)
+    rows = {
+        r.item_id: r
+        for r in db.query(UserShopItem).filter(UserShopItem.player_id == pid).all()
+    }
+    items = []
+    for item in db.query(Item).filter(Item.active.is_(True)).order_by(Item.sort_order).all():
+        r = rows.get(item.id)
+        items.append(
+            {
+                "item_id": str(item.id),
+                "code": item.code,
+                "name": item.name,
+                "category": item.category,
+                "stock": r.stock if r else s.default_stock,
+                "formula_price": item.buy_price or 1,
+                "buy_price": shop_service._item_price(item, s, r),
+                "buy_override": r.buy_price if r else None,
+                "sell_override": r.sell_price if r else None,
+            }
+        )
+    return {"items": items}
+
+
+def update_user_shop_item(db, player_id: str, item_id: str, data: dict) -> dict:
+    try:
+        pid = uuid.UUID(player_id)
+        iid = uuid.UUID(item_id)
+    except ValueError:
+        raise AppError("USER_NOT_FOUND", "用户或商品不存在", code=20002)
+    shop = shop_service.ensure_shop(db, db.query(Player).filter(Player.id == pid).first())
+    row = (
+        db.query(UserShopItem)
+        .filter(UserShopItem.player_id == pid, UserShopItem.item_id == iid)
+        .first()
+    )
+    if not row:
+        row = UserShopItem(player_id=pid, item_id=iid, stock=0)
+        db.add(row)
+    if "stock" in data and data["stock"] is not None:
+        row.stock = max(0, int(data["stock"]))
+    for field in ("buy_price", "sell_price"):
+        if field in data:
+            # 显式 null = 清除覆盖,恢复公式价
+            row.__setattr__(field, data[field])
+    db.commit()
+    return {"item_id": item_id, "stock": row.stock, "buy_override": row.buy_price, "sell_override": row.sell_price}
+
+
+def restock_user_shop(db, player_id: str) -> dict:
+    pid = uuid.UUID(player_id)
+    s = shop_service.get_settings(db)
+    shop = shop_service.ensure_shop(db, db.query(Player).filter(Player.id == pid).first())
+    for row in db.query(UserShopItem).filter(UserShopItem.player_id == pid).all():
+        row.stock = s.default_stock
+    shop.restocked_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"player_id": player_id, "restocked": True, "default_stock": s.default_stock}
+
+
+def reset_user_shop(db, player_id: str) -> dict:
+    pid = uuid.UUID(player_id)
+    s = shop_service.get_settings(db)
+    shop_service.ensure_shop(db, db.query(Player).filter(Player.id == pid).first())
+    for row in db.query(UserShopItem).filter(UserShopItem.player_id == pid).all():
+        row.buy_price = None
+        row.sell_price = None
+        row.stock = s.default_stock
+    shop.restocked_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"player_id": player_id, "reset": True}
