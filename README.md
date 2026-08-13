@@ -138,7 +138,7 @@ cd server
 uv sync --default-index https://mirrors.aliyun.com/pypi/simple/   # 安装依赖(国内镜像)
 cp .env.example .env        # 按需修改(默认值可直接开发)
 
-uv run uvicorn app.main:app --reload        # 启动开发服务器(端口 8000)
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000   # 启动(0.0.0.0=局域网可访问,仅本机调试可去掉)
 uv run python -m pytest -v                  # 跑测试
 ```
 
