@@ -295,6 +295,20 @@
 - `water_level`:0-100,浇水置 100(当前无衰减)
 - `art.stages[0..2]` 对应 苗期/生长期/成熟 三张图,Godot 按 `stage-1` 取图
 
+**作物图片获取(推荐走分辨率下发接口,见 §8.3)**:
+
+1. 从地块 `crop.art` 取路径,**提取 slug**(路径倒数第二段:`/static/assets/crops/rice/seed.svg` → `rice`)
+2. 按格子显示尺寸请求预渲染 PNG,服务端自动选最近档(32/64/128/256):
+
+```http
+# 种子图标(背包/商店用)
+GET /v1/art/crops/{slug}/seed.png?w=64
+# 阶段图(农场地块,crop.stage 为 1/2/3)
+GET /v1/art/crops/{slug}/{crop.stage}.png?w=128
+```
+
+3. 响应 `image/png` + `Cache-Control: public, max-age=86400`,客户端可放心缓存;素材不存在返回 404(`28001`)
+
 **错误**:`21000 FARM_NOT_FOUND`
 
 ### 3.8 POST /v1/farm/plots/{plot_id}/sow — 播种
@@ -716,6 +730,7 @@ GET /v1/art/crops/{slug}/{seed|1|2|3}.png?w=<目标像素>
 - 响应:`image/png` + `Cache-Control: public, max-age=86400`;素材不存在返回 404(`28001 ART_NOT_FOUND`)
 - slug 来源:作物 `art.seed` 路径中的目录名(如 `/static/assets/crops/rice/seed.svg` → `rice`)
 - 示例:Godot 端格子图 `?w=64`(缩略)/ 大图 `?w=256`;玩家视角按 `stage-1` 取 `stages` 对应素材
+- **取图闭环**:`GET /v1/farm/state` → 每格 `crop.art`(取 slug)→ `GET /v1/art/crops/{slug}/{seed|stage}.png?w=<px>`(详见 §3.7)
 
 ---
 
