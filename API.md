@@ -65,7 +65,7 @@
 | 3 | GET | `/v1/player/me` | 🔐 | 玩家档案(等级/金币/农场摘要) |
 | 4 | GET | `/v1/player/inventory` | 🔐 | 背包列表(含数量 0 的道具行) |
 | 5 | POST | `/v1/player/inventory/{item_id}/use` | 🔐 | 使用道具(水壶/肥料,需目标地块) |
-| 6 | GET | `/v1/calendar/current` | 🔓 | 当前节气 + 轮次 + 剩余秒 |
+| 6 | GET | `/v1/calendar/current` | 🔐 | **我的当前节气**(每用户独立世界:在线 1× / 离线 offline_factor) |
 | 7 | GET | `/v1/farm/state` | 🔐 | 农场全量状态(4×5=20 地块 + 每格作物状态) |
 | 8 | POST | `/v1/farm/plots/{plot_id}/sow` | 🔐 | 播种(校验节气窗 + 消耗种子) |
 | 9 | POST | `/v1/farm/plots/{plot_id}/water` | 🔐 | 浇水(water_level → 100) |
@@ -102,7 +102,7 @@
 | # | 方法 | 路径 | 说明 |
 |---|---|---|---|
 | 14 | POST | `/v1/debug/config` | 热改 `game_config` KV(改价格/节气时长等,不发版) |
-| 15 | POST | `/v1/debug/term/advance` | 手动推进一个节气(测播种窗/事件) |
+| 15 | POST | `/v1/debug/term/advance` | 手动推进**自己**一个节气(测播种窗/事件;只影响调用者玩家的世界) |
 | 16 | POST | `/v1/debug/grow` | 催熟指定地块作物(测收获) |
 
 ### 2.3 管理后台(👑 全部需 admin token)
@@ -114,6 +114,9 @@
 | 19 | GET | `/v1/admin/env` | 系统环境变量只读(敏感值打码) |
 | 20 | GET | `/v1/admin/users?page&page_size` | 用户列表(含玩家资产) |
 | 21 | PATCH | `/v1/admin/users/{user_id}/status` | 封禁/解封 `{"status": 0|1}` |
+| 21a | PATCH | `/v1/admin/users/{user_id}/assets` | 编辑玩家资产 `{"coins","level","exp","unlocked_term_index"}`(全可选) |
+| 21b | GET | `/v1/admin/users/{user_id}/farm` | 某用户农场(地块 + 当前作物 + 玩家当前节气) |
+| 21c | PUT | `/v1/admin/users/{user_id}/plots/{plot_idx}` | 地块管理 `{"locked","soil_quality"}`(全可选) |
 | 22 | GET | `/v1/admin/config` | 全部 `game_config` KV |
 | 23 | PUT | `/v1/admin/config/{key}` | 新增/更新 KV `{"value": ...}` |
 | 24 | DELETE | `/v1/admin/config/{key}` | 删除 KV |
@@ -136,6 +139,8 @@
 | 36i | PUT | `/v1/admin/shop/users/{pid}/items/{iid}` | 覆盖库存/买卖价(显式 null 恢复公式价) |
 | 36j | POST | `/v1/admin/shop/users/{pid}/restock` | 手动补货(重置为默认库存) |
 | 36k | POST | `/v1/admin/shop/users/{pid}/reset` | 重置商店(清覆盖 + 默认库存) |
+| 36l | GET | `/v1/admin/worlds?page&page_size` | 每用户世界/节气列表(在线状态 + 累计世界秒 + 当前节气) |
+| 36m | PUT | `/v1/admin/worlds/{player_id}` | 设定/重置玩家世界 `{"accum": 秒}` 或 `{"reset": true}`(回立春) |
 
 **管理后台 AI 端点**:
 
@@ -150,7 +155,7 @@
 
 | # | 类型 | 路径 | 说明 |
 |---|---|---|---|
-| 37 | WS | `/v1/ws` | 节气事件广播(连上即推当前节气) |
+| 37 | WS | `/v1/ws?token=` | **每用户节气推送**(🔐 玩家 token,连上即推我的节气,到点推送;无效关 4401) |
 | 38 | WS | `/v1/admin/logs?token=` | 后端日志监控(只读流,👑) |
 | 39 | GET | `/admin` | 管理后台页面(浏览器) |
 | 40 | GET | `/docs` | Swagger UI(OpenAPI) |
@@ -242,7 +247,14 @@
 
 **错误**:`22001 NOT_ENOUGH_ITEM`(道具不足)、`22002 ITEM_NOT_FOUND`、`10001 INVALID_PARAMS`(缺 target)、`21004 PLOT_EMPTY`(地块无作物)、`22004 EFFECT_NOT_SUPPORTED`(种子/节气卡:种子走播种接口,节气卡功能开发中)
 
-### 3.6 GET /v1/calendar/current — 当前节气
+### 3.6 GET /v1/calendar/current — 我的当前节气(🔐)
+
+**鉴权**:需玩家 JWT(每用户独立世界)。
+
+> **每用户世界时钟**:每个玩家维护自己的累计世界时间。
+> - 在线(最近一次请求/心跳在 `world.online_threshold_sec` 秒内,默认 300):世界按全局 `time_scale × 1.0` 推进。
+> - 离线:按全局 `time_scale × world.offline_factor` 推进(**默认 0.25**,`game_config` 可配)。
+> - **植物生长始终按墙钟正常速度**(与节气倍速无关)。首次访问自动继承全局节气位置(老玩家零成本迁移)。
 
 **成功响应 `data`**:
 
@@ -255,9 +267,11 @@
 | term_index | 1-24(1立春 … 24大寒) |
 | name | 节气名 |
 | cycle | 完整轮次数(从服务启动纪元起) |
-| remaining_sec | 本轮剩余秒(节气切换倒计时) |
+| remaining_sec | 本轮剩余秒(节气切换倒计时,按玩家倍速) |
 
-### 3.7 GET /v1/farm/state — 农场状态
+### 3.7 GET /v1/farm/state — 农场状态(🔐)
+
+> `current_term` 为该玩家自己的节气(每用户独立世界,见 §3.6);作物 `growth_progress`/`stage` 始终按墙钟正常速度计算。
 
 **成功响应 `data`**:
 
@@ -366,6 +380,8 @@ GET /v1/art/crops/{slug}/{crop.stage}.png?w=128
 
 ### 3.12 GET /v1/shop/items — 商店
 
+> 季节涨降(`crop_quotes.sell_price` 的 `season_factor`)跟随**该玩家自己的世界节气**(每用户独立,见 §3.6),而非全局。
+
 **成功响应 `data`**:
 
 ```json
@@ -398,9 +414,11 @@ GET /v1/art/crops/{slug}/{crop.stage}.png?w=128
 
 **错误**:`90001 DEBUG_DISABLED`(403,`DEBUG_ENABLED=false` 时)
 
-### 4.2 POST /v1/debug/term/advance — 推进节气
+### 4.2 POST /v1/debug/term/advance — 推进节气(只影响自己)
 
-无请求体。**响应** `data`: 同 `/v1/calendar/current`(推进后的当前节气)。
+无请求体。**响应** `data`: 同 `/v1/calendar/current`(推进后的**调用者**当前节气)。
+
+> 只推进调用者玩家的世界一个节气时长,其他玩家互不影响(每用户独立世界)。
 
 ### 4.3 POST /v1/debug/grow — 催熟
 
@@ -558,7 +576,46 @@ GET /v1/art/crops/{slug}/{crop.stage}.png?w=128
 { "time_scale": 2.0, "paused": true, "reset_epoch": false }
 ```
 
-→ `data: {"epoch": "...", "time_scale": 2.0, "paused": true}`。`reset_epoch=true` 把纪元重置为当前时间。
+→ `data: {"epoch": "...", "time_scale": 2.0, "paused": true}`。`reset_epoch=true` 把纪元重置为当前时间。**注意**:全局时钟现作为"参考"与新玩家初始化起点;玩家各自的世界在其基础上按在线/离线倍速推进。
+
+### 5.11 玩家资产 / 农场 / 每用户世界(21a-21c,36l-36m)
+
+**PATCH /v1/admin/users/{user_id}/assets** 请求体(全可选): `{"coins": 9999, "level": 5, "exp": 100, "unlocked_term_index": 12}`
+
+→ `data: {"player_id", "name", "level", "exp", "coins", "unlocked_term_index"}`。
+
+**GET /v1/admin/users/{user_id}/farm** → `data`:
+
+```json
+{
+  "player_id": "uuid", "name": "demo01",
+  "farm": { "farm_id": "uuid", "name": "demo01的农场", "plot_count": 20, "grid": {"cols":4,"rows":5} },
+  "current_term": { "term_index": 6, "name": "谷雨", "cycle": 0, "remaining_sec": 173 },
+  "plots": [ { "plot_id": "uuid", "idx": 1, "soil_quality": 1, "locked": false, "crop": { ... } } ]
+}
+```
+
+**PUT /v1/admin/users/{user_id}/plots/{plot_idx}** 请求体(全可选): `{"locked": true, "soil_quality": 3}` → `data: {"plot_id","idx","soil_quality","locked"}`。
+
+**GET /v1/admin/worlds?page=1&page_size=20** → `data`:
+
+```json
+{ "items": [ { "player_id": "uuid", "name": "demo01",
+    "online": true, "last_active_at": "...", "world_accum": 12345, "world_last_sync": "...",
+    "current_term": { "term_index": 6, "name": "谷雨", "cycle": 0, "remaining_sec": 173 } } ],
+  "page": 1, "page_size": 20, "total": 3 }
+```
+
+**PUT /v1/admin/worlds/{player_id}** 请求体: `{"accum": 6000}` 设定累计世界秒;或 `{"reset": true}` 重置回立春(term 1,accum=0)。→ `data: {"player_id","accum","term_index","name","cycle","remaining_sec"}`。
+
+### 5.12 每用户世界配置(离线倍速)
+
+`game_config` 键(管理后台"全局配置"页或 `PUT /v1/admin/config/{key}` 热改,即时生效):
+
+| key | 默认 | 说明 |
+|---|---|---|
+| `world.offline_factor` | `0.25` | 离线时世界推进倍速(0-1;1 = 在线同速) |
+| `world.online_threshold_sec` | `300` | 距最近心跳超过该秒数判定为离线 |
 
 ---
 
@@ -667,9 +724,11 @@ GET /v1/art/crops/{slug}/{crop.stage}.png?w=128
 
 ## 7. WebSocket 协议
 
-### 7.1 WS /v1/ws — 节气广播
+### 7.1 WS /v1/ws?token=<player_token> — 每用户节气推送(🔐)
 
-- 连接建立后立即推送一条当前节气事件;此后每个节气切换推送一条
+- **鉴权**:玩家 JWT 走查询参数(WS 无法带 Header)。无效/过期 token → 服务端关 `4401`。
+- 连接建立后立即推送一条**我的**当前节气事件;此后按该玩家的世界倍速,到点推送下一条(`remaining_sec` 除以倍速后的墙钟等待)
+- 连接期间视为**在线**(世界按 1× 推进),与 REST 心跳同一阈值判定
 - 客户端收到 `{"type":"unknown"}` 事件应**忽略**(向前兼容)
 
 ```json
