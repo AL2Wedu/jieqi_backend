@@ -35,9 +35,9 @@ def achievement_uuid(code: str) -> uuid.UUID:
 
 
 def crop_png_art(slug: str) -> dict:
-    """作物美术:真实素材 PNG 路径(种子图用阶段 1 兼作)。"""
+    """作物美术路径:seed(独立种子图标)+ stages[3](苗期/生长期/成熟,与种子图无关)。"""
     return {
-        "seed": f"/static/assets/crops/{slug}/1.png",
+        "seed": f"/static/assets/crops/{slug}/seed.png",
         "stages": [f"/static/assets/crops/{slug}/{i}.png" for i in (1, 2, 3)],
     }
 

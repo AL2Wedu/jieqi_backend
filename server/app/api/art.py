@@ -92,12 +92,11 @@ def crop_art(
     if name not in _ALLOWED_NAMES:
         raise AppError("ART_NOT_FOUND", "美术素材不存在", http_status=404, code=28001)
     d = ART_ROOT / slug
-    # 素材来源:同名 PNG(真实美术)→ 同名 SVG(程序生成);seed 缺图时回退到阶段 1
+    # 素材来源:同名 PNG(真实美术)→ 同名 SVG(程序生成)
+    # 注意:seed 与阶段图(1/2/3)是不同素材,绝不互相回退
     src = d / f"{name}.png"
     if not src.exists():
         src = d / f"{name}.svg"
-    if not src.exists() and name == "seed":
-        src = d / "1.png" if (d / "1.png").exists() else d / "1.svg"
     if not src.exists():
         raise AppError("ART_NOT_FOUND", "作物美术不存在", http_status=404, code=28001)
     ensure_prerendered(slug)  # 幂等:缺档自动补渲染

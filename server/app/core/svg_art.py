@@ -144,6 +144,59 @@ def _hex(c: str) -> tuple:
     return (int(c[0:2], 16), int(c[2:4], 16), int(c[4:6], 16), 255)
 
 
+def _dominant_color(png: Path) -> tuple:
+    """取图片主色(1×1 平均)。"""
+    img = Image.open(png).convert("RGBA").resize((1, 1), Image.LANCZOS)
+    return img.getpixel((0, 0))
+
+
+def _shade(c: tuple, f: float, invert: bool = False) -> tuple:
+    if invert:  # 提亮
+        return tuple(min(255, int(v + (255 - v) * f)) for v in c[:3]) + (255,)
+    return tuple(int(v * f) for v in c[:3]) + (255,)  # 压暗
+
+
+def generate_seed_icon(stage1_png: Path) -> bytes:
+    """生成独立种子图标(与阶段图无关):从阶段 1 图提取主色,绘制种子形状。
+
+    用途:背包/商店的种子缩略图。尺寸 128 基准,预渲染按档位缩放。
+    """
+    from io import BytesIO
+
+    from PIL import Image, ImageDraw
+
+    color = _dominant_color(stage1_png)
+    body = _shade(color, 0.55)
+    hl = _shade(color, 0.45, invert=True)
+    img = Image.new("RGBA", (128, 128), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    # 种子主体(斜置椭圆)+ 高光
+    _rot_ellipse(d, 64, 78, 26, 16, -22, body)
+    _rot_ellipse(d, 57, 72, 12, 6, -22, hl)
+    # 嫩芽(茎 + 两片叶)
+    d.line([64, 74, 62, 52], fill=(124, 179, 66, 255), width=4)
+    _rot_ellipse(d, 58, 52, 7, 4, -25, (124, 179, 66, 255))
+    _rot_ellipse(d, 68, 55, 6, 3, 30, (143, 201, 92, 255))
+    buf = BytesIO()
+    img.save(buf, "PNG")
+    return buf.getvalue()
+
+
+def ensure_seed_icons() -> int:
+    """为所有有阶段素材但缺种子图的作物生成独立种子图标;返回生成数。"""
+    n = 0
+    for entry in ART_ROOT.iterdir():
+        if not entry.is_dir():
+            continue
+        if (entry / "seed.png").exists():
+            continue
+        stage1 = entry / "1.png"
+        if stage1.exists():
+            (entry / "seed.png").write_bytes(generate_seed_icon(stage1))
+            n += 1
+    return n
+
+
 def _rot_ellipse(d, cx, cy, rx, ry, angle, fill, n=24):
     """旋转椭圆(多边形近似,角度制)。"""
     import math
@@ -247,9 +300,7 @@ def ensure_prerendered(slug: str) -> None:
     for stage in ("seed", "1", "2", "3"):
         src_png = d / f"{stage}.png"
         src_svg = d / f"{stage}.svg"
-        if not src_png.exists() and not src_svg.exists() and stage == "seed":
-            # seed 无独立素材时用阶段 1 兼作种子图
-            src_png = d / "1.png" if (d / "1.png").exists() else d / "1.svg"
+        # seed 与阶段图是独立素材:seed 缺图时不回退阶段图(宁可 404 也不混用)
         for size in PRERENDER_SIZES:
             out = d / f"{stage}_{size}.png"
             if out.exists():
