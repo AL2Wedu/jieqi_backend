@@ -13,3 +13,7 @@ venv/
 .pytest_cache/
 .coverage
 htmlcov/
+
+# 独立进程运行产物
+logs/
+*.log

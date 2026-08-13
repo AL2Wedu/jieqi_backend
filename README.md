@@ -142,6 +142,19 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000   # 启动(0.0.0.0=局域
 uv run python -m pytest -v                  # 跑测试
 ```
 
+### 独立进程管理(推荐,脱离 Hermes / 宿主会话)
+
+后端可用脚本独立启动,**关闭 Hermes 或终端不影响服务**:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\run_server.ps1    # 启动(0.0.0.0:8000,后台隐藏窗口)
+powershell -ExecutionPolicy Bypass -File scripts\stop_server.ps1   # 停止(按 PID,端口残留兜底)
+```
+
+- 日志:`logs\server.out.log` / `logs\server.err.log`;PID 文件:`logs\server.pid`
+- 脚本自动清理 Hermes 注入的 `PYTHONPATH`(避免 import 串包),端口占用时提示先停
+- 管理后台终端"▶ 启动后端"按钮与独立实例**互斥**(同一端口),二选一
+
 > 注:若在 Hermes 等带 `PYTHONPATH` 污染的环境运行,命令前加 `env -u PYTHONPATH`。
 
 **管理后台**:http://127.0.0.1:8000/admin(账号见 `.env` 的 `ADMIN_USERNAME/ADMIN_PASSWORD`,开发默认 `admin/admin123`)
