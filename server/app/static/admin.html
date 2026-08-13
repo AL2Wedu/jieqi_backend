@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>节气 · 管理台</title>
+<link rel="stylesheet" href="/static/vendor/xterm.css">
+<style>
+  :root {
+    --bg: #171717; --surface: #0f0f0f; --surface-2: #1f1f1f; --surface-3: #242424;
+    --border: #2e2e2e; --border-hi: #363636;
+    --text: #fafafa; --text-2: #b4b4b4; --text-3: #898989;
+    --green: #3ecf8e; --green-link: #00c573; --green-border: rgba(62,207,142,.3);
+    --danger: #ff6b6b; --warn: #f5c451;
+    --radius: 10px; --radius-sm: 6px;
+    --font: 'Inter','PingFang SC','Microsoft YaHei',system-ui,-apple-system,sans-serif;
+    --mono: 'Source Code Pro',Consolas,'Courier New',monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font); font-size: 14px; line-height: 1.5; }
+  .mono { font-family: var(--mono); }
+  button { font-family: var(--font); cursor: pointer; }
+  input, select, textarea { font-family: var(--font); }
+
+  /* ---------- 登录 ---------- */
+  #login { height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .login-card { width: 340px; background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 36px 32px; }
+  .login-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 28px; }
+  .logo-dot { width: 14px; height: 14px; border-radius: 4px; background: var(--green); box-shadow: 0 0 12px rgba(62,207,142,.5); }
+  .login-logo h1 { font-size: 20px; font-weight: 500; letter-spacing: 1px; }
+  .login-logo .sub { font-size: 12px; color: var(--text-3); font-family: var(--mono); letter-spacing: 2px; text-transform: uppercase; }
+  .login-card label { display: block; font-size: 12px; color: var(--text-2); margin: 16px 0 6px; }
+  .login-card .inp { width: 100%; }
+
+  /* ---------- 布局 ---------- */
+  #app { display: none; height: 100vh; grid-template-columns: 216px 1fr; grid-template-rows: 1fr auto; }
+  #app.on { display: grid; }
+  #sidebar { background: var(--surface); border-right: 1px solid var(--border); padding: 18px 12px; overflow-y: auto; }
+  .brand { display: flex; align-items: center; gap: 9px; padding: 4px 10px 18px; }
+  .brand h2 { font-size: 15px; font-weight: 500; }
+  .nav-btn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; margin-bottom: 2px;
+    background: transparent; border: 1px solid transparent; border-radius: var(--radius-sm); color: var(--text-2); font-size: 13.5px; text-align: left; transition: all .12s; }
+  .nav-btn:hover { background: var(--surface-2); color: var(--text); }
+  .nav-btn.active { background: var(--surface-2); color: var(--green); border-color: var(--green-border); }
+  .nav-ico { width: 16px; text-align: center; opacity: .85; }
+  .side-foot { position: absolute; bottom: 0; left: 0; width: 216px; padding: 14px 12px; border-top: 1px solid var(--border); font-size: 12px; color: var(--text-3); }
+  #sidebar { position: relative; padding-bottom: 64px; }
+
+  #main { overflow-y: auto; padding: 26px 30px; }
+  .page-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 22px; }
+  .page-head h1 { font-size: 22px; font-weight: 500; }
+  .page-head .mono { color: var(--text-3); font-size: 12px; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+  .card-title { font-size: 12px; color: var(--text-3); margin-bottom: 8px; }
+  .card-big { font-size: 26px; font-weight: 400; letter-spacing: -.3px; }
+  .card-sub { font-size: 12px; color: var(--text-2); margin-top: 6px; }
+
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 18px; overflow: hidden; }
+  .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 13px 18px; border-bottom: 1px solid var(--border); }
+  .panel-head h3 { font-size: 14px; font-weight: 500; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11.5px; color: var(--text-3); font-weight: 500; padding: 10px 14px; border-bottom: 1px solid var(--border); letter-spacing: .5px; }
+  td { padding: 10px 14px; border-bottom: 1px solid #222; vertical-align: middle; }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover { background: var(--surface-2); }
+
+  .badge { display: inline-block; padding: 2px 10px; border-radius: 9999px; font-size: 12px; border: 1px solid var(--border); color: var(--text-2); }
+  .badge.ok { color: var(--green); border-color: var(--green-border); }
+  .badge.bad { color: var(--danger); border-color: rgba(255,107,107,.35); }
+  .badge.off { color: var(--text-3); }
+
+  .btn { background: var(--surface-3); color: var(--text); border: 1px solid var(--border-hi); border-radius: var(--radius-sm); padding: 7px 16px; font-size: 13px; transition: all .12s; }
+  .btn:hover { border-color: var(--text-3); }
+  .btn.primary { background: #0f0f0f; border-color: var(--text); border-radius: 9999px; padding: 8px 24px; }
+  .btn.primary:hover { border-color: var(--green); color: var(--green); }
+  .btn.green { color: var(--green); border-color: var(--green-border); }
+  .btn.danger { color: var(--danger); border-color: rgba(255,107,107,.35); }
+  .btn.small { padding: 4px 12px; font-size: 12px; border-radius: 9999px; }
+  .btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  .inp { background: var(--surface); border: 1px solid var(--border-hi); border-radius: var(--radius-sm); color: var(--text); padding: 8px 12px; font-size: 13px; outline: none; }
+  .inp:focus { border-color: var(--green); }
+  .inp.mono { font-family: var(--mono); font-size: 12.5px; }
+  .inp.mini { width: 90px; padding: 4px 8px; }
+  .inp.mid { width: 150px; }
+  .inp.wide { width: 100%; }
+
+  .row-actions { display: flex; gap: 6px; }
+  .pager { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-top: 1px solid var(--border); font-size: 12.5px; color: var(--text-2); }
+  .empty { padding: 34px; text-align: center; color: var(--text-3); }
+  .loading { padding: 40px; text-align: center; color: var(--text-3); }
+  .error { padding: 40px; text-align: center; color: var(--danger); }
+
+  /* ---------- 弹窗 ---------- */
+  .modal-mask { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 50; align-items: center; justify-content: center; }
+  .modal-mask.on { display: flex; }
+  .modal-box { width: 520px; max-width: 94vw; max-height: 88vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border-hi); border-radius: 14px; padding: 24px 26px; }
+  .modal-box h3 { font-size: 16px; font-weight: 500; margin-bottom: 18px; }
+  .form-row { display: flex; gap: 12px; margin-bottom: 12px; }
+  .form-field { flex: 1; }
+  .form-field label { display: block; font-size: 12px; color: var(--text-2); margin-bottom: 5px; }
+  .form-field .inp { width: 100%; }
+  .modal-foot { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+
+  /* ---------- Toast ---------- */
+  #toast { position: fixed; right: 22px; bottom: 22px; z-index: 99; display: flex; flex-direction: column; gap: 8px; }
+  .toast-item { background: var(--surface-3); border: 1px solid var(--border-hi); border-left: 3px solid var(--green); border-radius: var(--radius-sm); padding: 10px 16px; font-size: 13px; box-shadow: 0 4px 16px rgba(0,0,0,.4); animation: slidein .18s ease; }
+  .toast-item.err { border-left-color: var(--danger); }
+  @keyframes slidein { from { transform: translateX(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+  /* ---------- 终端栏 ---------- */
+  #term-bar { grid-column: 1 / -1; background: var(--surface); border-top: 1px solid var(--border); display: flex; flex-direction: column; }
+  #term-bar.collapsed { height: 40px; }
+  #term-bar.collapsed #term-body { display: none; }
+  #term-head { display: flex; align-items: center; gap: 12px; padding: 8px 14px; border-bottom: 1px solid var(--border); height: 40px; }
+  #term-head .t-label { font-size: 12px; color: var(--text-2); font-family: var(--mono); letter-spacing: 1px; text-transform: uppercase; }
+  .t-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-3); }
+  .t-dot.on { background: var(--green); box-shadow: 0 0 8px rgba(62,207,142,.6); }
+  #term-body { height: 240px; padding: 4px 0; }
+  #term-body .xterm { height: 100%; padding: 0 8px; }
+  .term-msg { padding: 18px; color: var(--text-3); font-size: 13px; }
+  .spacer { flex: 1; }
+
+  /* 内联编辑 */
+  .kv-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .cfg-item { display: flex; align-items: center; gap: 10px; }
+  .cfg-item .key { width: 180px; color: var(--green-link); font-family: var(--mono); font-size: 12.5px; word-break: break-all; }
+  .env-box { max-height: 200px; overflow-y: auto; }
+  .env-box table td { padding: 6px 14px; font-size: 12px; }
+</style>
+</head>
+<body>
+
+<!-- 登录 -->
+<div id="login">
+  <form class="login-card" onsubmit="return doLogin(event)">
+    <div class="login-logo">
+      <div class="logo-dot"></div>
+      <div>
+        <h1>节气 · 管理台</h1>
+        <div class="sub">JIEQI ADMIN</div>
+      </div>
+    </div>
+    <label>管理员账号</label>
+    <input class="inp" id="login-user" value="admin" autocomplete="username">
+    <label>密码</label>
+    <input class="inp" id="login-pass" type="password" autocomplete="current-password">
+    <div style="margin-top: 24px;">
+      <button class="btn primary" type="submit" style="width:100%">登 录</button>
+    </div>
+  </form>
+</div>
+
+<!-- 主界面 -->
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand"><div class="logo-dot"></div><h2>节气 · 管理台</h2></div>
+    <button class="nav-btn active" data-view="dashboard" onclick="switchView('dashboard')"><span class="nav-ico">◈</span>仪表盘</button>
+    <button class="nav-btn" data-view="users" onclick="switchView('users')"><span class="nav-ico">👥</span>用户列表</button>
+    <button class="nav-btn" data-view="config" onclick="switchView('config')"><span class="nav-ico">⚙</span>全局配置</button>
+    <button class="nav-btn" data-view="crops" onclick="switchView('crops')"><span class="nav-ico">🌾</span>作物管理</button>
+    <button class="nav-btn" data-view="items" onclick="switchView('items')"><span class="nav-ico">🎒</span>道具管理</button>
+    <button class="nav-btn" data-view="pricing" onclick="switchView('pricing')"><span class="nav-ico">¥</span>定价</button>
+    <button class="nav-btn" data-view="terms" onclick="switchView('terms')"><span class="nav-ico">☀</span>节气设置</button>
+    <div class="side-foot">
+      <div class="mono" style="font-size:11px;color:var(--text-3)">PID 未知</div>
+      <button class="btn small danger" style="margin-top:8px" onclick="logout()">退出登录</button>
+    </div>
+  </aside>
+
+  <main id="main">
+    <div id="view" class="loading">加载中…</div>
+  </main>
+
+  <div id="term-bar">
+    <div id="term-head">
+      <span class="t-dot" id="term-dot"></span>
+      <span class="t-label">PowerShell 终端</span>
+      <button class="btn small green" onclick="termRun('uv run uvicorn app.main:app --port 8000\r')">▶ 启动后端</button>
+      <button class="btn small danger" onclick="termRun('\u0003')">■ 停止(中断)</button>
+      <button class="btn small" onclick="termRun('cls\r')">清屏命令</button>
+      <span class="spacer"></span>
+      <button class="btn small" onclick="toggleTerm()">收起 / 展开</button>
+    </div>
+    <div id="term-body"><div id="xterm"></div></div>
+  </div>
+</div>
+
+<div class="modal-mask" id="modal"><div class="modal-box" id="modal-box"></div></div>
+<div id="toast"></div>
+
+<script src="/static/vendor/xterm.js"></script>
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+const state = { token: localStorage.getItem('admin_token') || '', view: 'dashboard' };
+
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function toast(msg, type) { const t = document.createElement('div'); t.className = 'toast-item' + (type==='err'?' err':''); t.textContent = msg; $('#toast').appendChild(t); setTimeout(()=>t.remove(), 3200); }
+
+async function api(path, method='GET', body) {
+  const res = await fetch('/v1/admin' + path, {
+    method,
+    headers: { 'Content-Type': 'application/json', ...(state.token ? {Authorization:'Bearer '+state.token} : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const j = await res.json().catch(() => ({ code: 99999, message: 'HTTP ' + res.status }));
+  if (res.status === 401 && (j.code === 10002 || j.code === 10003)) { logout(); throw new Error('登录已过期'); }
+  if (j.code !== 0) throw new Error(j.message || '请求失败');
+  return j.data;
+}
+
+/* ---------- 登录 ---------- */
+async function doLogin(e) {
+  e.preventDefault();
+  try {
+    const d = await api('/login', 'POST', { username: $('#login-user').value.trim(), password: $('#login-pass').value });
+    state.token = d.token; localStorage.setItem('admin_token', d.token);
+    enterApp();
+  } catch (err) { toast(err.message, 'err'); }
+  return false;
+}
+function logout() { state.token = ''; localStorage.removeItem('admin_token'); location.reload(); }
+function enterApp() {
+  $('#login').style.display = 'none';
+  $('#app').classList.add('on');
+  switchView('dashboard');
+  initTerminal(); connectTerminal();
+  setInterval(() => { if (state.view === 'dashboard') loadView(); }, 15000);
+}
+
+/* ---------- 视图路由 ---------- */
+const views = { dashboard, users, config, crops, items, pricing, terms };
+function switchView(name) {
+  state.view = name;
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
+  loadView();
+}
+async function loadView() {
+  const el = $('#view');
+  el.innerHTML = '<div class="loading">加载中…</div>';
+  try { await views[state.view](el); } catch (err) { el.innerHTML = '<div class="error">' + esc(err.message) + '</div>'; }
+}
+
+/* ---------- 仪表盘 ---------- */
+async function dashboard(el) {
+  const d = await api('/dashboard');
+  const c = d.counts;
+  document.querySelector('.side-foot .mono').textContent = 'PID ' + d.server.pid + ' · v' + d.server.version;
+  el.innerHTML = `
+    <div class="page-head"><h1>仪表盘</h1><span class="mono">服务 PID ${d.server.pid} · v${d.server.version} · 数据库 ${(d.server.db_size/1024).toFixed(1)} KB</span></div>
+    <div class="cards">
+      ${card('当前节气', d.calendar.name, `${d.calendar.term_index}/24 · 剩余 ${d.calendar.remaining_sec}s · 第 ${d.calendar.cycle} 轮`)}
+      ${card('注册用户', c.users, `${c.players} 位玩家`)}
+      ${card('农场', c.farms, `${c.growing} 块地种植中`)}
+      ${card('金币总量', c.coins_total.toLocaleString(), '全服经济总量')}
+      ${card('作物', c.crops, '配置表')}
+      ${card('道具', c.items, '目录')}
+    </div>`;
+}
+function card(title, big, sub) {
+  return `<div class="card"><div class="card-title">${esc(title)}</div><div class="card-big">${esc(big)}</div><div class="card-sub">${esc(sub)}</div></div>`;
+}
+
+/* ---------- 用户列表 ---------- */
+let userPage = 1;
+async function users(el) {
+  const d = await api(`/users?page=${userPage}&page_size=20`);
+  const totalPages = Math.max(1, Math.ceil(d.total / d.page_size));
+  el.innerHTML = `
+    <div class="page-head"><h1>用户列表</h1><span class="mono">共 ${d.total} 人</span></div>
+    <div class="panel"><table>
+      <thead><tr><th>用户名</th><th>ID</th><th>状态</th><th>等级</th><th>金币</th><th>注册IP</th><th>注册时间</th><th>操作</th></tr></thead>
+      <tbody>${d.items.map(u => `<tr>
+        <td>${esc(u.name)}</td>
+        <td class="mono" style="color:var(--text-3)">${u.user_id.slice(0,8)}…</td>
+        <td>${u.status === 1 ? '<span class="badge ok">正常</span>' : '<span class="badge bad">封禁</span>'}</td>
+        <td>${u.player ? 'Lv.' + u.player.level : '—'}</td>
+        <td>${u.player ? u.player.coins : '—'}</td>
+        <td class="mono" style="color:var(--text-3)">${esc(u.register_ip || '—')}</td>
+        <td style="color:var(--text-3)">${esc((u.created_at||'').slice(0,10))}</td>
+        <td><button class="btn small ${u.status===1?'danger':'green'}" onclick="toggleBan('${u.user_id}', ${u.status===1?0:1})">${u.status===1?'封禁':'解封'}</button></td>
+      </tr>`).join('') || '<tr><td colspan="8" class="empty">暂无用户</td></tr>'}</tbody>
+    </table>
+    <div class="pager"><button class="btn small" onclick="userPage--;loadView()" ${userPage<=1?'disabled':''}>‹ 上一页</button><span>第 ${userPage} / ${totalPages} 页</span><button class="btn small" onclick="userPage++;loadView()" ${userPage>=totalPages?'disabled':''}>下一页 ›</button></div>
+    </div>`;
+}
+async function toggleBan(uid, status) {
+  try { await api(`/users/${uid}/status`, 'PATCH', { status }); toast(status ? '已解封' : '已封禁'); loadView(); }
+  catch (err) { toast(err.message, 'err'); }
+}
+
+/* ---------- 全局配置 ---------- */
+async function config(el) {
+  const d = await api('/config');
+  el.innerHTML = `
+    <div class="page-head"><h1>全局配置</h1><span class="mono">game_config · 热更新,即时生效</span></div>
+    <div class="panel">
+      <div class="panel-head"><h3>KV 配置</h3><button class="btn small green" onclick="openConfigAdd()">+ 新增键</button></div>
+      <div class="kv-grid" style="padding:16px 18px">
+        ${d.items.map(c => `
+          <div class="cfg-item">
+            <span class="key">${esc(c.key)}</span>
+            <input class="inp mono" style="flex:1" value="${esc(JSON.stringify(c.value))}" data-k="${esc(c.key)}">
+            <button class="btn small green" onclick="saveCfg(this)">存</button>
+            <button class="btn small danger" onclick="delCfg('${esc(c.key)}')">删</button>
+          </div>`).join('') || '<div class="empty">暂无配置项</div>'}
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>系统环境变量(只读,敏感值已打码)</h3></div>
+      <div class="env-box"><table>
+        <tbody>${(await envRows()).join('')}</tbody>
+      </table></div>
+    </div>`;
+}
+async function envRows() {
+  const d = await api('/env');
+  return d.items.slice(0, 60).map(e => `<tr><td class="mono" style="color:var(--green-link)">${esc(e.name)}</td><td class="mono" style="color:var(--text-3)">${esc(e.value)}</td></tr>`);
+}
+async function saveCfg(btn) {
+  const input = btn.parentElement.querySelector('input');
+  const key = input.dataset.k;
+  let value = input.value;
+  try { value = JSON.parse(value); } catch (_) {}
+  try { await api(`/config/${encodeURIComponent(key)}`, 'PUT', { value }); toast('已保存 ' + key); loadView(); }
+  catch (err) { toast(err.message, 'err'); }
+}
+async function delCfg(key) {
+  try { await api(`/config/${encodeURIComponent(key)}`, 'DELETE'); toast('已删除 ' + key); loadView(); }
+  catch (err) { toast(err.message, 'err'); }
+}
+function openConfigAdd() {
+  openModal(`<h3>新增配置键</h3>
+    <div class="form-field"><label>Key</label><input class="inp" id="cfg-key"></div>
+    <div class="form-field" style="margin-top:12px"><label>Value(JSON)</label><input class="inp mono" id="cfg-val" value="{}"></div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="addCfg()">创建</button></div>`);
+}
+async function addCfg() {
+  const key = $('#cfg-key').value.trim(), raw = $('#cfg-val').value;
+  if (!key) { toast('Key 必填', 'err'); return; }
+  let value; try { value = JSON.parse(raw); } catch (_) { value = raw; }
+  try { await api(`/config/${encodeURIComponent(key)}`, 'PUT', { value }); closeModal(); toast('已创建 ' + key); loadView(); }
+  catch (err) { toast(err.message, 'err'); }
+}
+
+/* ---------- 作物管理 ---------- */
+async function crops(el) {
+  const d = await api('/crops');
+  el.innerHTML = `
+    <div class="page-head"><h1>作物管理</h1><span class="mono">新增 / 编辑 / 软删 · 可自动生成种子</span></div>
+    <div class="panel"><table>
+      <thead><tr><th>名称</th><th>分类</th><th>节气窗</th><th>宽限</th><th>生长(秒)</th><th>产量</th><th>单价</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody>${d.items.map(c => `<tr>
+        <td>${esc(c.name)}</td>
+        <td style="color:var(--text-2)">${esc(c.category)}</td>
+        <td class="mono">${c.sow_window.type==='term' ? c.sow_window.start+'–'+c.sow_window.end : (c.sow_window.seasons||[]).join('/')}</td>
+        <td class="mono">${c.sow_window.grace ?? 0}</td>
+        <td class="mono">${c.grow_seconds}</td>
+        <td class="mono">${c.yield_base}</td>
+        <td class="mono">${c.base_price}</td>
+        <td>${c.active ? '<span class="badge ok">上架</span>' : '<span class="badge off">下架</span>'}</td>
+        <td><div class="row-actions">
+          <button class="btn small" onclick="openCropEdit(${JSON.stringify(c).replace(/"/g,'&quot;')})">编辑</button>
+          <button class="btn small danger" onclick="delCrop('${c.crop_id}')">删除</button>
+        </div></td>
+      </tr>`).join('') || '<tr><td colspan="9" class="empty">暂无作物</td></tr>'}</tbody>
+    </table></div>
+    <button class="btn primary" onclick="openCropEdit()">+ 新增植物(可自动建种子)</button>`;
+}
+let cropDraft = null;
+function openCropEdit(c) {
+  cropDraft = c || null;
+  const w = c ? c.sow_window : { type: 'term', start: 1, end: 24, grace: 0 };
+  openModal(`
+    <h3>${c ? '编辑作物 · ' + esc(c.name) : '新增植物'}</h3>
+    <div class="form-row">
+      <div class="form-field"><label>名称</label><input class="inp" id="cr-name" value="${c?esc(c.name):''}"></div>
+      <div class="form-field"><label>分类</label><select class="inp" id="cr-cat">${['谷物','蔬菜','瓜果','花卉'].map(x=>`<option ${c&&c.category===x?'selected':''}>${x}</option>`).join('')}</select></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>宜种起始节气(1-24)</label><input class="inp" type="number" min="1" max="24" id="cr-s" value="${w.start}"></div>
+      <div class="form-field"><label>宜种结束节气</label><input class="inp" type="number" min="1" max="24" id="cr-e" value="${w.end}"></div>
+      <div class="form-field"><label>宽限期(轮)</label><input class="inp" type="number" min="0" max="6" id="cr-g" value="${w.grace ?? 0}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>生长时长(秒)</label><input class="inp" type="number" min="10" id="cr-grow" value="${c?c.grow_seconds:600}"></div>
+      <div class="form-field"><label>基础产量</label><input class="inp" type="number" min="1" id="cr-yield" value="${c?c.yield_base:3}"></div>
+      <div class="form-field"><label>基础单价(金币)</label><input class="inp" type="number" min="1" id="cr-price" value="${c?c.base_price:10}"></div>
+    </div>
+    <div class="form-field"><label>描述(农谚/百科)</label><input class="inp" id="cr-desc" value="${c?esc(c.description||''):''}"></div>
+    ${c ? '' : '<div style="margin-top:12px"><label class="form-field" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="cr-seed" checked> 自动创建对应种子道具</label></div>'}
+    <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveCrop()">${c?'保存':'创建'}</button></div>`);
+}
+async function saveCrop() {
+  const payload = {
+    name: $('#cr-name').value.trim(), category: $('#cr-cat').value,
+    sow_window: { type: 'term', start: +$('#cr-s').value, end: +$('#cr-e').value, grace: +$('#cr-g').value },
+    grow_seconds: +$('#cr-grow').value, yield_base: +$('#cr-yield').value, base_price: +$('#cr-price').value,
+    description: $('#cr-desc').value.trim(),
+  };
+  if (cropDraft) {
+    try { await api(`/crops/${cropDraft.crop_id}`, 'PUT', payload); toast('已保存'); }
+    catch (err) { toast(err.message, 'err'); return; }
+  } else {
+    payload.auto_seed = $('#cr-seed').checked;
+    try { await api('/crops', 'POST', payload); toast('已创建' + (payload.auto_seed ? '(含种子)' : '')); }
+    catch (err) { toast(err.message, 'err'); return; }
+  }
+  closeModal(); loadView();
+}
+async function delCrop(id) {
+  if (!confirm('确定删除该作物?(软删,有种植中的作物会拒绝)')) return;
+  try { await api('/crops/' + id, 'DELETE'); toast('已删除'); loadView(); }
+  catch (err) { toast(err.message, 'err'); }
+}
+
+/* ---------- 道具管理 ---------- */
+async function items(el) {
+  const d = await api('/items');
+  el.innerHTML = `
+    <div class="page-head"><h1>道具管理</h1><span class="mono">目录 · effect JSON 定义效果</span></div>
+    <div class="panel"><table>
+      <thead><tr><th>code</th><th>名称</th><th>分类</th><th>效果</th><th>买价</th><th>卖价</th><th>状态</th><th>操作</th></tr></thead>
+      <tbody>${d.items.map(i => `<tr>
+        <td class="mono" style="color:var(--green-link)">${esc(i.code)}</td>
+        <td>${esc(i.name)}</td>
+        <td style="color:var(--text-2)">${esc(i.category)}</td>
+        <td class="mono" style="color:var(--text-3);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(JSON.stringify(i.effect))}</td>
+        <td class="mono">${i.buy_price ?? '—'}</td>
+        <td class="mono">${i.sell_price ?? '—'}</td>
+        <td>${i.active ? '<span class="badge ok">上架</span>' : '<span class="badge off">下架</span>'}</td>
+        <td><div class="row-actions">
+          <button class="btn small" onclick="openItemEdit(${JSON.stringify(i).replace(/"/g,'&quot;')})">编辑</button>
+          <button class="btn small danger" onclick="delItem('${i.item_id}')">删除</button>
+        </div></td>
+      </tr>`).join('') || '<tr><td colspan="8" class="empty">暂无道具</td></tr>'}</tbody>
+    </table></div>
+    <button class="btn primary" onclick="openItemEdit()">+ 新增道具</button>`;
+}
+let itemDraft = null;
+function openItemEdit(i) {
+  itemDraft = i || null;
+  openModal(`
+    <h3>${i ? '编辑道具 · ' + esc(i.code) : '新增道具'}</h3>
+    <div class="form-row">
+      <div class="form-field"><label>code(唯一)</label><input class="inp mono" id="it-code" value="${i?esc(i.code):''}"></div>
+      <div class="form-field"><label>名称</label><input class="inp" id="it-name" value="${i?esc(i.name):''}"></div>
+    </div>
+    <div class="form-row">
+      <div class="form-field"><label>分类</label><select class="inp" id="it-cat">${['seed','fertilizer','tool','card','deco','material'].map(x=>`<option ${i&&i.category===x?'selected':''}>${x}</option>`).join('')}</select></div>
+      <div class="form-field"><label>买价(留空=不可购买)</label><input class="inp" type="number" min="0" id="it-buy" value="${i&&i.buy_price!=null?i.buy_price:''}"></div>
+      <div class="form-field"><label>卖价</label><input class="inp" type="number" min="0" id="it-sell" value="${i&&i.sell_price!=null?i.sell_price:''}"></div>
+    </div>
+    <div class="form-field"><label>effect(JSON,种子需 {"type":"seed","crop_id":"..."})</label><input class="inp mono" id="it-eff" value="${i?esc(JSON.stringify(i.effect)):'{}'}"></div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveItem()">${i?'保存':'创建'}</button></div>`);
+}
+async function saveItem() {
+  let effect; try { effect = JSON.parse($('#it-eff').value); } catch (_) { toast('effect 不是合法 JSON','err'); return; }
+  const payload = { code: $('#it-code').value.trim(), name: $('#it-name').value.trim(), category: $('#it-cat').value, effect,
+    buy_price: $('#it-buy').value === '' ? null : +$('#it-buy').value, sell_price: $('#it-sell').value === '' ? null : +$('#it-sell').value };
+  if (!payload.code || !payload.name) { toast('code 与名称必填','err'); return; }
+  try {
+    if (itemDraft) { await api('/items/' + itemDraft.item_id, 'PUT', payload); toast('已保存'); }
+    else { await api('/items', 'POST', payload); toast('已创建'); }
+    closeModal(); loadView();
+  } catch (err) { toast(err.message, 'err'); }
+}
+async function delItem(id) {
+  if (!confirm('确定删除该道具?(软删)')) return;
+  try { await api('/items/' + id, 'DELETE'); toast('已删除'); loadView(); }
+  catch (err) { toast(err.message, 'err'); }
+}
+
+/* ---------- 定价 ---------- */
+async function pricing(el) {
+  const [cropsD, itemsD] = await Promise.all([api('/crops'), api('/items')]);
+  el.innerHTML = `
+    <div class="page-head"><h1>定价</h1><span class="mono">静态价 · 保存即时生效</span></div>
+    <div class="panel">
+      <div class="panel-head"><h3>作物售价</h3></div>
+      <table><thead><tr><th>作物</th><th>基础单价</th><th>操作</th></tr></thead>
+      <tbody>${cropsD.items.filter(c=>c.active).map(c => `<tr>
+        <td>${esc(c.name)}</td>
+        <td><input class="inp mini mono" data-kind="crop" data-id="${c.crop_id}" data-field="base_price" value="${c.base_price}"></td>
+        <td><button class="btn small green" onclick="savePrice(this)">保存</button></td>
+      </tr>`).join('')}</tbody></table>
+    </div>
+    <div class="panel">
+      <div class="panel-head"><h3>道具价格</h3></div>
+      <table><thead><tr><th>道具</th><th>买价</th><th>卖价</th><th>操作</th></tr></thead>
+      <tbody>${itemsD.items.filter(i=>i.active).map(i => `<tr>
+        <td>${esc(i.name)} <span class="mono" style="color:var(--text-3)">${esc(i.code)}</span></td>
+        <td><input class="inp mini mono" data-kind="item" data-id="${i.item_id}" data-field="buy_price" value="${i.buy_price ?? ''}"></td>
+        <td><input class="inp mini mono" data-kind="item" data-id="${i.item_id}" data-field="sell_price" value="${i.sell_price ?? ''}"></td>
+        <td><button class="btn small green" onclick="savePrice(this)">保存</button></td>
+      </tr>`).join('')}</tbody></table>
+    </div>`;
+}
+async function savePrice(btn) {
+  const row = btn.parentElement.parentElement;
+  const inputs = row.querySelectorAll('input[data-field]');
+  const payload = {};
+  inputs.forEach(inp => { const v = inp.value; payload[inp.dataset.field] = v === '' ? null : +v; });
+  const first = inputs[0];
+  try {
+    if (first.dataset.kind === 'crop') await api('/crops/' + first.dataset.id, 'PUT', payload);
+    else await api('/items/' + first.dataset.id, 'PUT', payload);
+    toast('价格已保存');
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+/* ---------- 节气设置 ---------- */
+async function terms(el) {
+  const d = await api('/terms');
+  el.innerHTML = `
+    <div class="page-head"><h1>节气设置</h1><span class="mono">轮转时钟 · 时长热更新</span></div>
+    <div class="panel">
+      <div class="panel-head"><h3>游戏时钟</h3></div>
+      <div style="padding:16px 18px;display:flex;gap:14px;align-items:flex-end;flex-wrap:wrap">
+        <div class="form-field"><label>倍速 time_scale</label><input class="inp mid mono" id="cl-scale" value="${d.clock.time_scale}"></div>
+        <div class="form-field"><label>暂停</label><input type="checkbox" id="cl-paused" style="width:18px;height:18px" ${d.clock.paused?'checked':''}></div>
+        <button class="btn primary" onclick="saveClock()">保存时钟</button>
+        <button class="btn" onclick="resetClock()">重置纪元(归零)</button>
+        <span class="mono" style="color:var(--text-3);align-self:center">epoch ${esc(d.clock.epoch.slice(0,19).replace('T',' '))}</span>
+      </div>
+    </div>
+    <div class="panel"><table>
+      <thead><tr><th>序号</th><th>节气</th><th>时长(秒)</th><th>操作</th></tr></thead>
+      <tbody>${d.items.map(t => `<tr>
+        <td class="mono" style="color:var(--text-3)">${t.term_index}</td>
+        <td style="font-weight:500">${esc(t.name)}</td>
+        <td><input class="inp mini mono" data-term="${t.term_index}" value="${t.duration_seconds}"></td>
+        <td><button class="btn small green" onclick="saveTerm(this)">保存</button></td>
+      </tr>`).join('')}</tbody></table></div>`;
+}
+async function saveTerm(btn) {
+  const tr = btn.parentElement.parentElement;
+  const idx = tr.querySelector('input').dataset.term;
+  const dur = +tr.querySelector('input').value;
+  try { await api('/terms/' + idx, 'PUT', { duration_seconds: dur }); toast('已保存 ' + tr.querySelectorAll('td')[1].textContent); }
+  catch (err) { toast(err.message, 'err'); }
+}
+async function saveClock() {
+  const payload = { time_scale: parseFloat($('#cl-scale').value) || 1, paused: $('#cl-paused').checked };
+  try { await api('/clock', 'PUT', payload); toast('时钟已保存'); loadView(); }
+  catch (err) { toast(err.message, 'err'); }
+}
+async function resetClock() {
+  try { await api('/clock', 'PUT', { reset_epoch: true }); toast('纪元已重置'); loadView(); }
+  catch (err) { toast(err.message, 'err'); }
+}
+
+/* ---------- 弹窗与 Toast ---------- */
+function openModal(html) { $('#modal-box').innerHTML = html; $('#modal').classList.add('on'); }
+function closeModal() { $('#modal').classList.remove('on'); }
+$('#modal').addEventListener('click', e => { if (e.target === $('#modal')) closeModal(); });
+
+/* ---------- 终端 ---------- */
+let term = null, termWS = null;
+function initTerminal() {
+  if (!window.Terminal) { $('#xterm').innerHTML = '<div class="term-msg">xterm.js 未加载</div>'; return; }
+  term = new Terminal({
+    theme: { background: '#0f0f0f', foreground: '#d6d6d6', cursor: '#3ecf8e', selectionBackground: 'rgba(62,207,142,.25)' },
+    fontSize: 13, fontFamily: "'Source Code Pro',Consolas,monospace", cursorBlink: true,
+    convertEol: true,
+  });
+  term.open(document.getElementById('xterm'));
+  term.onData(d => { if (termWS && termWS.readyState === 1) termWS.send(JSON.stringify({ type: 'input', data: d })); });
+}
+function connectTerminal() {
+  if (!term) return;
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  termWS = new WebSocket(`${proto}://${location.host}/v1/admin/terminal?token=${encodeURIComponent(state.token)}`);
+  termWS.onmessage = e => {
+    const m = JSON.parse(e.data);
+    if (m.type === 'data') term.write(m.data);
+    else if (m.type === 'error') term.write('\r\n\x1b[31m' + m.data + '\x1b[0m\r\n');
+  };
+  termWS.onopen = () => { $('#term-dot').classList.add('on'); term.write('\x1b[32m[终端已连接]\x1b[0m\r\n'); };
+  termWS.onclose = () => { $('#term-dot').classList.remove('on'); term.write('\r\n\x1b[33m[终端连接已断开]\x1b[0m\r\n'); };
+}
+function termRun(cmd) {
+  if (termWS && termWS.readyState === 1) termWS.send(JSON.stringify({ type: 'input', data: cmd }));
+  else toast('终端未连接', 'err');
+}
+function toggleTerm() { $('#term-bar').classList.toggle('collapsed'); }
+
+/* ---------- 启动 ---------- */
+// 支持 #token=xxx 片段深链登录(片段不进服务器日志,便于开发/自动化验证)
+const fragToken = new URLSearchParams(location.hash.slice(1)).get('token');
+if (fragToken) {
+  state.token = fragToken;
+  localStorage.setItem('admin_token', fragToken);
+}
+if (state.token) {
+  api('/dashboard').then(() => enterApp()).catch(() => { /* 登录过期则留在登录页 */ });
+}
+</script>
+</body>
+</html>

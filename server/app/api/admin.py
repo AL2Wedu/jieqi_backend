@@ -1,10 +1,14 @@
-from fastapi import APIRouter, Depends, Query
+import asyncio
+import json
+import threading
+
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.deps import get_current_admin, get_db
 from app.core.errors import AppError, ok
-from app.core.security import create_admin_token
+from app.core.security import create_admin_token, is_admin_token
 from app.schemas import (
     AdminClockPayload,
     AdminConfigValue,
@@ -15,6 +19,7 @@ from app.schemas import (
     AdminTermDuration,
 )
 from app.services import admin_service
+from app.ws.terminal import bridge
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -181,3 +186,64 @@ def clock_update(
             reset_epoch=req.reset_epoch,
         )
     )
+
+
+@router.websocket("/terminal")
+async def terminal_ws(websocket: WebSocket, token: str = Query(default="")):
+    """管理终端:ConPTY PowerShell 桥。token 走查询参数(WS 无法带 Header)。"""
+    if not settings.admin_enabled or not is_admin_token(token):
+        await websocket.close(code=4401)
+        return
+    await websocket.accept()
+    if not bridge.ensure_started():
+        await websocket.send_json({"type": "error", "data": "终端不可用:缺少 pywinpty 支持"})
+        await websocket.close()
+        return
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    def on_data(text: str) -> None:
+        try:
+            queue.put_nowait({"type": "data", "data": text})
+        except Exception:
+            pass
+
+    def read_loop() -> None:
+        while True:
+            try:
+                chunk = bridge.proc.read()
+                if not chunk:
+                    break
+                text = (
+                    chunk.decode("utf-8", errors="replace")
+                    if isinstance(chunk, bytes)
+                    else chunk
+                )
+                on_data(text)
+            except Exception:
+                break
+
+    threading.Thread(target=read_loop, daemon=True).start()
+
+    async def sender() -> None:
+        while True:
+            msg = await queue.get()
+            await websocket.send_json(msg)
+
+    sender_task = asyncio.create_task(sender())
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            try:
+                msg = json.loads(raw)
+            except Exception:
+                msg = {"type": "input", "data": raw}
+            t = msg.get("type")
+            if t == "input":
+                bridge.write(str(msg.get("data", "")))
+            elif t == "resize":
+                bridge.resize(int(msg.get("rows", 24)), int(msg.get("cols", 110)))
+    except WebSocketDisconnect:
+        pass
+    finally:
+        sender_task.cancel()
