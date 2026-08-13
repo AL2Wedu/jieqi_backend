@@ -141,3 +141,24 @@ class AdminWorldPayload(BaseModel):
 
     accum: float | None = Field(default=None, ge=0)
     reset: bool = False
+
+
+class AdminPlotCropPayload(BaseModel):
+    """地块作物控制:种植/替换指定作物(管理端不消耗种子、不校验节气窗)。"""
+
+    crop_id: str
+    growth_progress: int = Field(default=0, ge=0, le=100)
+    water_level: int = Field(default=100, ge=0, le=100)
+
+
+class AdminPlotGrowthPayload(BaseModel):
+    """调整已有作物生长进度% / 浇水。"""
+
+    growth_progress: int | None = Field(default=None, ge=0, le=100)
+    water_level: int | None = Field(default=None, ge=0, le=100)
+
+
+class AdminQuantityPayload(BaseModel):
+    """设定数量(绝对值;0=清空)。用于背包道具 / 收成仓作物。"""
+
+    quantity: int = Field(ge=0)

@@ -288,6 +288,8 @@ async function users(el) {
         <td><div class="row-actions">
           <button class="btn small" onclick="openAssets('${u.user_id}')">资产</button>
           <button class="btn small" onclick="openFarm('${u.user_id}')">农场</button>
+          <button class="btn small" onclick="openInventory('${u.user_id}')">背包</button>
+          <button class="btn small" onclick="openStorage('${u.user_id}')">收成仓</button>
           <button class="btn small ${u.status===1?'danger':'green'}" onclick="toggleBan('${u.user_id}', ${u.status===1?0:1})">${u.status===1?'封禁':'解封'}</button>
         </div></td>
       </tr>`).join('') || '<tr><td colspan="8" class="empty">暂无用户</td></tr>'}</tbody>
@@ -320,25 +322,55 @@ async function saveAssets(uid) {
   catch (err) { toast(err.message, 'err'); }
 }
 
-/* ---------- 农场地块管理 ---------- */
+/* ---------- 农场地块管理(含作物控制) ---------- */
 async function openFarm(uid) {
   try {
-    const d = await api('/users/' + uid + '/farm');
+    const [d, crops] = await Promise.all([
+      api('/users/' + uid + '/farm'),
+      api('/crops'),
+    ]);
+    const cropOpts = crops.items.filter(c => c.active).map(c =>
+      `<option value="${c.crop_id}">${esc(c.name)}</option>`).join('') || '<option value="">无可用作物</option>';
     openModal(`<h3>农场 · ${esc(d.name)}</h3>
-      <div class="mono" style="color:var(--text-3);margin-bottom:14px">当前节气 ${esc(d.current_term.name)}(${d.current_term.term_index}/24) · 剩 ${d.current_term.remaining_sec}s</div>
-      <table><thead><tr><th>地块</th><th>肥力</th><th>状态</th><th>作物</th><th>操作</th></tr></thead>
+      <div class="mono" style="color:var(--text-3);margin-bottom:14px">当前节气 ${esc(d.current_term.name)}(${d.current_term.term_index}/24) · 剩 ${d.current_term.remaining_sec}s · 作物控制不消耗种子、不校验节气窗</div>
+      <table><thead><tr><th>地块</th><th>作物</th><th>进度%</th><th>浇水</th><th>肥力</th><th>操作</th></tr></thead>
       <tbody>${d.plots.map(p => `<tr>
-        <td class="mono">#${p.idx}</td>
+        <td class="mono">#${p.idx}${p.locked?' 🔒':''}</td>
+        <td><select class="inp" style="min-width:120px" id="crop-sel-${p.idx}">${cropOpts}</select>
+            <div class="mono" style="color:var(--text-3);font-size:11px;margin-top:3px">当前:${p.crop ? esc(p.crop.name) + ' · 阶段' + p.crop.stage + ' · ' + p.crop.growth_progress + '%' : '—'}</div></td>
+        <td><input class="inp mini mono" id="crop-p-${p.idx}" type="number" min="0" max="100" value="${p.crop ? p.crop.growth_progress : 0}"></td>
+        <td><input class="inp mini mono" id="crop-w-${p.idx}" type="number" min="0" max="100" value="${p.crop ? p.crop.water_level : 100}"></td>
         <td><input class="inp mini mono" id="sq-${p.idx}" value="${p.soil_quality}" type="number" min="1" max="5"></td>
-        <td>${p.locked ? '<span class="badge bad">锁定</span>' : '<span class="badge ok">可用</span>'}</td>
-        <td>${p.crop ? esc(p.crop.name) + ' <span class="mono" style="color:var(--text-3)">阶段' + p.crop.stage + ' · ' + p.crop.growth_progress + '%</span>' : '—'}</td>
         <td><div class="row-actions">
+          <button class="btn small green" onclick="plantCrop('${uid}', ${p.idx})">种/换</button>
+          <button class="btn small" onclick="applyGrowth('${uid}', ${p.idx})">调进度</button>
+          <button class="btn small danger" onclick="clearCrop('${uid}', ${p.idx})">清地</button>
           <button class="btn small" onclick="savePlot('${uid}', ${p.idx})">存肥力</button>
           <button class="btn small" onclick="togglePlot('${uid}', ${p.idx}, ${p.locked})">${p.locked?'解锁':'锁定'}</button>
         </div></td>
       </tr>`).join('')}</tbody></table>
       <div class="modal-foot"><button class="btn" onclick="closeModal()">关闭</button></div>`);
   } catch (err) { toast(err.message, 'err'); }
+}
+async function plantCrop(uid, idx) {
+  const crop_id = $('#crop-sel-' + idx).value;
+  if (!crop_id) { toast('请先选择作物', 'err'); return; }
+  const payload = {
+    crop_id,
+    growth_progress: parseInt($('#crop-p-' + idx).value, 10) || 0,
+    water_level: parseInt($('#crop-w-' + idx).value, 10) || 0,
+  };
+  try { await api(`/users/${uid}/plots/${idx}/crop`, 'PUT', payload); toast('地块 #' + idx + ' 已种植'); openFarm(uid); }
+  catch (err) { toast(err.message, 'err'); }
+}
+async function applyGrowth(uid, idx) {
+  const payload = { growth_progress: parseInt($('#crop-p-' + idx).value, 10) || 0, water_level: parseInt($('#crop-w-' + idx).value, 10) || 0 };
+  try { await api(`/users/${uid}/plots/${idx}/growth`, 'PUT', payload); toast('地块 #' + idx + ' 进度已更新'); openFarm(uid); }
+  catch (err) { toast(err.message, 'err'); }
+}
+async function clearCrop(uid, idx) {
+  try { await api(`/users/${uid}/plots/${idx}/crop`, 'DELETE'); toast('地块 #' + idx + ' 已清空'); openFarm(uid); }
+  catch (err) { toast(err.message, 'err'); }
 }
 async function savePlot(uid, idx) {
   const sq = parseInt($('#sq-' + idx).value, 10);
@@ -348,6 +380,46 @@ async function savePlot(uid, idx) {
 }
 async function togglePlot(uid, idx, locked) {
   try { await api(`/users/${uid}/plots/${idx}`, 'PUT', { locked: !locked }); openFarm(uid); }
+  catch (err) { toast(err.message, 'err'); }
+}
+
+/* ---------- 背包 / 收成仓控制 ---------- */
+async function openInventory(uid) {
+  try {
+    const d = await api('/users/' + uid + '/inventory');
+    openModal(`<h3>背包道具(设置数量)</h3>
+      <table><thead><tr><th>道具</th><th>当前</th><th>数量(0=清空)</th></tr></thead>
+      <tbody>${d.items.filter(i => i.active).map(i => `
+        <tr><td>${esc(i.name)} <span class="mono" style="color:var(--text-3)">${esc(i.code)}</span></td>
+        <td class="mono">${i.quantity}</td>
+        <td><input class="inp mini mono" id="inv-${esc(i.item_id)}" type="number" min="0" value="${i.quantity}"></td>
+        <td><button class="btn small green" onclick="saveInv('${uid}','${esc(i.item_id)}')">保存</button></td></tr>`).join('')}</tbody></table>
+      <div class="modal-foot"><button class="btn" onclick="closeModal()">关闭</button></div>`);
+  } catch (err) { toast(err.message, 'err'); }
+}
+async function saveInv(uid, item_id) {
+  const q = parseInt($('#inv-' + item_id).value, 10);
+  if (isNaN(q)) { toast('数量需为数字', 'err'); return; }
+  try { await api(`/users/${uid}/inventory/${item_id}`, 'PUT', { quantity: q }); toast('背包已更新'); openInventory(uid); }
+  catch (err) { toast(err.message, 'err'); }
+}
+async function openStorage(uid) {
+  try {
+    const d = await api('/users/' + uid + '/storage');
+    openModal(`<h3>收成仓(设置数量)</h3>
+      <table><thead><tr><th>作物</th><th>当前</th><th>数量(0=清空)</th></tr></thead>
+      <tbody>${d.crops.filter(c => c.active).map(c => `
+        <tr><td>${esc(c.name)}</td>
+        <td class="mono">${c.quantity}</td>
+        <td><input class="inp mini mono" id="st-${esc(c.crop_id)}" type="number" min="0" value="${c.quantity}"></td>
+        <td><button class="btn small green" onclick="saveSt('${uid}','${esc(c.crop_id)}')">保存</button></td></tr>`).join('')}</tbody></table>
+      <div class="modal-foot"><button class="btn" onclick="closeModal()">关闭</button></div>`);
+  } catch (err) { toast(err.message, 'err'); }
+}
+async function saveSt(uid, crop_id) {
+  const q = parseInt($('#st-' + crop_id).value, 10);
+  if (isNaN(q)) { toast('数量需为数字', 'err'); return; }
+  try { await api(`/users/${uid}/storage/${crop_id}`, 'PUT', { quantity: q }); toast('收成仓已更新'); openStorage(uid); }
   catch (err) { toast(err.message, 'err'); }
 }
 

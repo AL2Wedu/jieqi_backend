@@ -117,6 +117,13 @@
 | 21a | PATCH | `/v1/admin/users/{user_id}/assets` | 编辑玩家资产 `{"coins","level","exp","unlocked_term_index"}`(全可选) |
 | 21b | GET | `/v1/admin/users/{user_id}/farm` | 某用户农场(地块 + 当前作物 + 玩家当前节气) |
 | 21c | PUT | `/v1/admin/users/{user_id}/plots/{plot_idx}` | 地块管理 `{"locked","soil_quality"}`(全可选) |
+| 21d | PUT | `/v1/admin/users/{user_id}/plots/{plot_idx}/crop` | **地块作物**:种植/替换指定作物(不消耗种子、不校验节气窗) |
+| 21e | DELETE | `/v1/admin/users/{user_id}/plots/{plot_idx}/crop` | 清除地块作物 |
+| 21f | PUT | `/v1/admin/users/{user_id}/plots/{plot_idx}/growth` | 调整已有作物生长进度% / 浇水 |
+| 21g | GET | `/v1/admin/users/{user_id}/inventory` | 玩家背包明细(全部道具 + 当前数量) |
+| 21h | PUT | `/v1/admin/users/{user_id}/inventory/{item_id}` | 设定道具数量(绝对值,0=清空;写账本) |
+| 21i | GET | `/v1/admin/users/{user_id}/storage` | 玩家收成仓明细(全部作物 + 当前数量) |
+| 21j | PUT | `/v1/admin/users/{user_id}/storage/{crop_id}` | 设定收成仓库存(绝对值,0=清空) |
 | 22 | GET | `/v1/admin/config` | 全部 `game_config` KV |
 | 23 | PUT | `/v1/admin/config/{key}` | 新增/更新 KV `{"value": ...}` |
 | 24 | DELETE | `/v1/admin/config/{key}` | 删除 KV |
@@ -616,6 +623,38 @@ GET /v1/art/crops/{slug}/{crop.stage}.png?w=128
 |---|---|---|
 | `world.offline_factor` | `0.25` | 离线时世界推进倍速(0-1;1 = 在线同速) |
 | `world.online_threshold_sec` | `300` | 距最近心跳超过该秒数判定为离线 |
+
+### 5.13 地块作物 / 背包 / 收成仓控制(21d-21j,👑)
+
+管理端**纯后台直接改库**:播种不消耗种子、不校验节气窗(与玩家正常播种区分开)。
+
+**PUT /v1/admin/users/{user_id}/plots/{plot_idx}/crop** — 种植/替换指定作物
+
+```json
+{ "crop_id": "uuid", "growth_progress": 60, "water_level": 80 }
+```
+
+| 字段 | 说明 |
+|---|---|
+| crop_id | 目标作物(必须 `active`) |
+| growth_progress | 0-100,默认 0;**唯一真源**——按进度回拨 `sowed_at`,`stage` 由服务器推导(≥50 → 生长期,=100 → 成熟) |
+| water_level | 0-100,默认 100 |
+
+若该地块已有活跃作物 → 先标记已收获(yield=0)再种新的。→ `data`: 含 `plot_id`/`idx` + 作物 view(`crop_id`/`name`/`stage`/`growth_progress`/`water_level`/`predicted_harvest_at`)。
+
+**DELETE /v1/admin/users/{user_id}/plots/{plot_idx}/crop** → `{"plot_id","idx","cleared":true}`(无产量)。
+
+**PUT /v1/admin/users/{user_id}/plots/{plot_idx}/growth** — 调整已有作物(全可选): `{"growth_progress": 100, "water_level": 50}` → 作物 view。空地块报 `21004 PLOT_EMPTY`。
+
+**GET /v1/admin/users/{user_id}/inventory** → `data: {"player_id", "items": [{item_id, code, name, category, quantity, active}]}`(全部道具,数量 0 也列出)。
+
+**PUT /v1/admin/users/{user_id}/inventory/{item_id}** 请求体 `{"quantity": 5}`(0=清空行)→ `data: {"player_id","item_id","code","quantity"}`。**写 `item_transactions` 账本**(`reason="admin"`),便于审计。
+
+**GET /v1/admin/users/{user_id}/storage** → `data: {"player_id", "crops": [{crop_id, name, category, quantity, active}]}`。
+
+**PUT /v1/admin/users/{user_id}/storage/{crop_id}** 请求体 `{"quantity": 12}`(0=清空行)→ `data: {"player_id","crop_id","name","quantity"}`。
+
+> 玩家视角立即生效:种植后 `/v1/farm/state` 可见;背包改后 `/v1/player/inventory` 可见;收成仓改后 `/v1/shop/storage` 可见。进度调至 100 后玩家可正常收获(走正常链路入仓)。
 
 ---
 

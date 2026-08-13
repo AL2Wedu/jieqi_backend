@@ -17,7 +17,10 @@ from app.schemas import (
     AdminItemPayload,
     AdminLoginRequest,
     AdminPlayerAssetsPayload,
+    AdminPlotCropPayload,
+    AdminPlotGrowthPayload,
     AdminPlotPayload,
+    AdminQuantityPayload,
     AdminShopSettingsPayload,
     AdminStatusRequest,
     AdminTermDuration,
@@ -239,6 +242,93 @@ def user_plot(
     return ok(
         admin_service.update_player_plot(db, user_id, plot_idx, req.model_dump(exclude_none=True))
     )
+
+
+@router.put("/users/{user_id}/plots/{plot_idx}/crop")
+def user_plot_crop(
+    user_id: str,
+    plot_idx: int,
+    req: AdminPlotCropPayload,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """地块作物:种植/替换指定作物(不消耗种子、不校验节气窗;growth_progress 为唯一真源)。"""
+    return ok(
+        admin_service.admin_set_plot_crop(
+            db, user_id, plot_idx, req.model_dump(exclude_none=True)
+        )
+    )
+
+
+@router.delete("/users/{user_id}/plots/{plot_idx}/crop")
+def user_plot_crop_delete(
+    user_id: str,
+    plot_idx: int,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """清除地块作物(无产量)。"""
+    return ok(admin_service.admin_clear_plot_crop(db, user_id, plot_idx))
+
+
+@router.put("/users/{user_id}/plots/{plot_idx}/growth")
+def user_plot_growth(
+    user_id: str,
+    plot_idx: int,
+    req: AdminPlotGrowthPayload,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """调整地块已有作物生长进度% / 浇水。"""
+    return ok(
+        admin_service.admin_set_plot_growth(
+            db, user_id, plot_idx, req.model_dump(exclude_none=True)
+        )
+    )
+
+
+@router.put("/users/{user_id}/inventory/{item_id}")
+def user_inventory_set(
+    user_id: str,
+    item_id: str,
+    req: AdminQuantityPayload,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """设定玩家道具数量(绝对值;0=清空;写账本)。"""
+    return ok(admin_service.admin_set_inventory(db, user_id, item_id, req.quantity))
+
+
+@router.get("/users/{user_id}/inventory")
+def user_inventory_list(
+    user_id: str,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """玩家背包明细(全部道具 + 当前数量)。"""
+    return ok(admin_service.list_player_inventory(db, user_id))
+
+
+@router.put("/users/{user_id}/storage/{crop_id}")
+def user_storage_set(
+    user_id: str,
+    crop_id: str,
+    req: AdminQuantityPayload,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """设定收成仓该作物库存(绝对值;0=清空)。"""
+    return ok(admin_service.admin_set_storage(db, user_id, crop_id, req.quantity))
+
+
+@router.get("/users/{user_id}/storage")
+def user_storage_list(
+    user_id: str,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """玩家收成仓明细(全部作物 + 当前数量)。"""
+    return ok(admin_service.list_player_storage(db, user_id))
 
 
 @router.get("/worlds")

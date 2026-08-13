@@ -1,7 +1,7 @@
 """管理后台业务逻辑:统计 / 用户 / 全局配置 / 作物 / 道具 / 节气与时钟。"""
 import os
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
@@ -11,14 +11,17 @@ from app.core.errors import AppError
 from app.models import (
     Crop,
     CropInstance,
+    CropStorage,
     Farm,
     GameClock,
     GameConfig,
     Item,
+    ItemTransaction,
     Player,
     Plot,
     TermConfig,
     User,
+    UserItem,
     UserShop,
     UserShopItem,
 )
@@ -748,6 +751,203 @@ def update_player_plot(db: Session, user_id: str, plot_idx: int, data: dict) -> 
         "soil_quality": plot.soil_quality,
         "locked": plot.locked,
     }
+
+
+# ---------- 地块作物 / 背包 / 收成仓控制(管理端,纯后台直接改库) ----------
+
+def _player_plot(db: Session, user_id: str, plot_idx: int) -> tuple[Player, Farm, Plot]:
+    player = _player_by_user(db, user_id)
+    farm = db.query(Farm).filter(Farm.owner_id == player.id).first()
+    if not farm:
+        raise AppError("FARM_NOT_FOUND", "农场不存在", code=21000)
+    plot = db.query(Plot).filter(Plot.farm_id == farm.id, Plot.idx == plot_idx).first()
+    if not plot:
+        raise AppError("PLOT_NOT_FOUND", "地块不存在", code=21001)
+    return player, farm, plot
+
+
+def _clear_active_crop(db: Session, plot_id) -> None:
+    """把地块现有活跃作物标记为已收获(yield=0),释放部分唯一索引。"""
+    ci = (
+        db.query(CropInstance)
+        .filter(CropInstance.plot_id == plot_id, CropInstance.harvested_at.is_(None))
+        .first()
+    )
+    if ci:
+        ci.harvested_at = datetime.now(timezone.utc)
+        ci.yield_actual = 0
+
+
+def admin_set_plot_crop(db: Session, user_id: str, plot_idx: int, data: dict) -> dict:
+    """给地块种植/替换指定作物(管理端:不消耗种子、不校验节气窗)。
+
+    growth_progress 是唯一真源:按进度回拨 sowed_at,stage 由 crop_view 推导。
+    """
+    player, farm, plot = _player_plot(db, user_id, plot_idx)
+    try:
+        crop_id = uuid.UUID(data["crop_id"])
+    except (ValueError, KeyError):
+        raise AppError("CROP_NOT_FOUND", "作物不存在", code=21005)
+    crop = db.query(Crop).filter(Crop.id == crop_id, Crop.active.is_(True)).first()
+    if not crop:
+        raise AppError("CROP_NOT_FOUND", "作物不存在", code=21005)
+
+    now = datetime.now(timezone.utc)
+    progress = max(0, min(100, int(data.get("growth_progress", 0))))
+    water_level = max(0, min(100, int(data.get("water_level", 100))))
+
+    _clear_active_crop(db, plot.id)
+    term, _, _ = world_service.peek_term(db, player, now)
+    grow = crop.grow_seconds
+    sowed_at = now - timedelta(seconds=grow * progress / 100.0)
+    ci = CropInstance(
+        plot_id=plot.id,
+        crop_id=crop.id,
+        sowed_at=sowed_at,
+        sowed_term_index=term.term_index,
+        water_level=water_level,
+        predicted_harvest_at=now + timedelta(seconds=grow * (1 - progress / 100.0)),
+    )
+    db.add(ci)
+    db.commit()
+    view = farm_service.crop_view(ci, crop)
+    return {"plot_id": str(plot.id), "idx": plot.idx, **view}
+
+
+def admin_clear_plot_crop(db: Session, user_id: str, plot_idx: int) -> dict:
+    """清除地块作物(管理端,无产量)。"""
+    player, farm, plot = _player_plot(db, user_id, plot_idx)
+    _clear_active_crop(db, plot.id)
+    db.commit()
+    return {"plot_id": str(plot.id), "idx": plot.idx, "cleared": True}
+
+
+def admin_set_plot_growth(db: Session, user_id: str, plot_idx: int, data: dict) -> dict:
+    """调整已有作物生长进度% / 浇水(管理端)。"""
+    player, farm, plot = _player_plot(db, user_id, plot_idx)
+    ci = (
+        db.query(CropInstance)
+        .filter(CropInstance.plot_id == plot.id, CropInstance.harvested_at.is_(None))
+        .first()
+    )
+    if not ci:
+        raise AppError("PLOT_EMPTY", "该地块没有作物", code=21004)
+    crop = db.query(Crop).filter(Crop.id == ci.crop_id).first()
+    now = datetime.now(timezone.utc)
+    if data.get("growth_progress") is not None:
+        progress = max(0, min(100, int(data["growth_progress"])))
+        grow = crop.grow_seconds if crop else 600
+        ci.sowed_at = now - timedelta(seconds=grow * progress / 100.0)
+        ci.predicted_harvest_at = now + timedelta(seconds=grow * (1 - progress / 100.0))
+    if data.get("water_level") is not None:
+        ci.water_level = max(0, min(100, int(data["water_level"])))
+    db.commit()
+    view = farm_service.crop_view(ci, crop)
+    return {"plot_id": str(plot.id), "idx": plot.idx, **view}
+
+
+def admin_set_inventory(db: Session, user_id: str, item_id: str, quantity: int) -> dict:
+    """设定玩家道具数量(绝对值;0=清空)。写 ItemTransaction 账本便于审计。"""
+    player = _player_by_user(db, user_id)
+    try:
+        iid = uuid.UUID(item_id)
+    except ValueError:
+        raise AppError("ITEM_NOT_FOUND", "道具不存在", code=22002)
+    item = db.query(Item).filter(Item.id == iid).first()
+    if not item:
+        raise AppError("ITEM_NOT_FOUND", "道具不存在", code=22002)
+    quantity = max(0, int(quantity))
+    row = (
+        db.query(UserItem)
+        .filter(UserItem.player_id == player.id, UserItem.item_id == iid)
+        .first()
+    )
+    old = row.quantity if row else 0
+    if quantity == 0:
+        if row:
+            db.delete(row)
+    elif row:
+        row.quantity = quantity
+    else:
+        db.add(UserItem(player_id=player.id, item_id=iid, quantity=quantity))
+    db.add(
+        ItemTransaction(
+            player_id=player.id,
+            item_id=iid,
+            delta=quantity - old,
+            reason="admin",
+        )
+    )
+    db.commit()
+    return {"player_id": str(player.id), "item_id": item_id, "code": item.code, "quantity": quantity}
+
+
+def list_player_inventory(db: Session, user_id: str) -> dict:
+    """玩家背包明细(全部道具,数量 0 也展示),供管理端控制面板。"""
+    player = _player_by_user(db, user_id)
+    rows = {
+        r.item_id: r.quantity
+        for r in db.query(UserItem).filter(UserItem.player_id == player.id).all()
+    }
+    items = [
+        {
+            "item_id": str(i.id),
+            "code": i.code,
+            "name": i.name,
+            "category": i.category,
+            "quantity": rows.get(i.id, 0),
+            "active": i.active,
+        }
+        for i in db.query(Item).order_by(Item.sort_order, Item.code).all()
+    ]
+    return {"player_id": str(player.id), "items": items}
+
+
+def admin_set_storage(db: Session, user_id: str, crop_id: str, quantity: int) -> dict:
+    """设定收成仓该作物库存(绝对值;0=清空)。"""
+    player = _player_by_user(db, user_id)
+    try:
+        cid = uuid.UUID(crop_id)
+    except ValueError:
+        raise AppError("CROP_NOT_FOUND", "作物不存在", code=21005)
+    crop = db.query(Crop).filter(Crop.id == cid).first()
+    if not crop:
+        raise AppError("CROP_NOT_FOUND", "作物不存在", code=21005)
+    quantity = max(0, int(quantity))
+    row = (
+        db.query(CropStorage)
+        .filter(CropStorage.player_id == player.id, CropStorage.crop_id == cid)
+        .first()
+    )
+    if quantity == 0:
+        if row:
+            db.delete(row)
+    elif row:
+        row.quantity = quantity
+    else:
+        db.add(CropStorage(player_id=player.id, crop_id=cid, quantity=quantity))
+    db.commit()
+    return {"player_id": str(player.id), "crop_id": crop_id, "name": crop.name, "quantity": quantity}
+
+
+def list_player_storage(db: Session, user_id: str) -> dict:
+    """玩家收成仓明细(全部作物,数量 0 也展示),供管理端控制面板。"""
+    player = _player_by_user(db, user_id)
+    rows = {
+        r.crop_id: r.quantity
+        for r in db.query(CropStorage).filter(CropStorage.player_id == player.id).all()
+    }
+    crops = [
+        {
+            "crop_id": str(c.id),
+            "name": c.name,
+            "category": c.category,
+            "quantity": rows.get(c.id, 0),
+            "active": c.active,
+        }
+        for c in db.query(Crop).order_by(Crop.sort_order, Crop.name).all()
+    ]
+    return {"player_id": str(player.id), "crops": crops}
 
 
 def list_worlds(db: Session, page: int, page_size: int) -> dict:
