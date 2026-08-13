@@ -419,7 +419,8 @@
 {
   "items": [
     { "user_id": "uuid", "name": "demo01", "status": 1,
-      "register_ip": "127.0.0.1", "last_login_ip": "127.0.0.1",
+      "register_ip": "127.0.0.1", "register_location": "内网",
+      "last_login_ip": "223.5.5.5", "last_login_location": "浙江省 杭州市 阿里",
       "created_at": "2026-08-13T...", "last_login_at": "2026-08-13T...",
       "player": { "level": 1, "exp": 0, "coins": 200, "unlocked_term_index": 1 } }
   ],
