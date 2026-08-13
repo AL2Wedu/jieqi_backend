@@ -178,9 +178,20 @@ def _crop_view(c: Crop) -> dict:
         "base_price": c.base_price,
         "unlock_level": c.unlock_level,
         "description": c.description,
+        "art": c.art or {},
         "sort_order": c.sort_order,
         "active": c.active,
     }
+
+
+def ensure_crop_art(crop: Crop) -> None:
+    """作物没有美术时,生成通用占位 SVG 并写入 art 路径。"""
+    if crop.art and crop.art.get("stages"):
+        return
+    from app.core.svg_art import generate_crop_art
+
+    slug = crop.id.hex[:8]
+    crop.art = generate_crop_art(slug, "#7cb342", "#f0c040", "grains")
 
 
 def list_crops(db: Session) -> dict:
@@ -262,6 +273,10 @@ def create_crop(db: Session, data: dict, auto_seed: bool = False) -> dict:
         )
         db.add(seed)
         seed_created = True
+    if data.get("art"):
+        crop.art = data["art"]
+    else:
+        ensure_crop_art(crop)  # 生成通用占位 SVG
     db.commit()
     view = _crop_view(crop)
     view["seed_created"] = seed_created
@@ -284,6 +299,7 @@ def update_crop(db: Session, crop_id: str, data: dict) -> dict:
         "base_price",
         "unlock_level",
         "description",
+        "art",
         "sort_order",
         "active",
     ):

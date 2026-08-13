@@ -1,6 +1,7 @@
 [
   {
     "name": "水稻",
+    "slug": "rice",
     "category": "谷物",
     "sow_window": {"type": "term", "start": 5, "end": 7, "grace": 2},
     "grow_seconds": 900,
@@ -11,6 +12,7 @@
   },
   {
     "name": "小麦",
+    "slug": "wheat",
     "category": "谷物",
     "sow_window": {"type": "term", "start": 19, "end": 21, "grace": 2},
     "grow_seconds": 1200,
@@ -21,6 +23,7 @@
   },
   {
     "name": "大豆",
+    "slug": "soybean",
     "category": "谷物",
     "sow_window": {"type": "term", "start": 9, "end": 11, "grace": 2},
     "grow_seconds": 900,
@@ -31,6 +34,7 @@
   },
   {
     "name": "白菜",
+    "slug": "cabbage",
     "category": "蔬菜",
     "sow_window": {"type": "term", "start": 18, "end": 20, "grace": 2},
     "grow_seconds": 600,
@@ -41,6 +45,7 @@
   },
   {
     "name": "番茄",
+    "slug": "tomato",
     "category": "蔬菜",
     "sow_window": {"type": "term", "start": 6, "end": 8, "grace": 2},
     "grow_seconds": 900,
@@ -51,6 +56,7 @@
   },
   {
     "name": "菊花",
+    "slug": "chrysanthemum",
     "category": "花卉",
     "sow_window": {"type": "term", "start": 4, "end": 6, "grace": 2},
     "grow_seconds": 1200,

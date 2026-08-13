@@ -99,6 +99,10 @@ def test_crops_crud(client):
     assert r["code"] == 0, r
     assert r["data"]["seed_created"] is True
     crop_id = r["data"]["crop_id"]
+    # 自动生成美术资产:种子 + 三阶段路径齐全
+    art = r["data"]["art"]
+    assert art["seed"].endswith("seed.svg")
+    assert len(art["stages"]) == 3 and all(s.endswith(".svg") for s in art["stages"])
 
     # 商店出现萝卜种子
     shop = client.get("/v1/shop/items").json()["data"]["items"]

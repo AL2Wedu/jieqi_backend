@@ -355,8 +355,9 @@ async function crops(el) {
   el.innerHTML = `
     <div class="page-head"><h1>作物管理</h1><span class="mono">新增 / 编辑 / 软删 · 可自动生成种子</span></div>
     <div class="panel"><table>
-      <thead><tr><th>名称</th><th>分类</th><th>节气窗</th><th>宽限</th><th>生长(秒)</th><th>产量</th><th>单价</th><th>状态</th><th>操作</th></tr></thead>
+      <thead><tr><th>美术</th><th>名称</th><th>分类</th><th>节气窗</th><th>宽限</th><th>生长(秒)</th><th>产量</th><th>单价</th><th>状态</th><th>操作</th></tr></thead>
       <tbody>${d.items.map(c => `<tr>
+        <td><img src="${esc((c.art.stages||[])[2]||'')}" onerror="this.style.display='none'" style="width:36px;height:36px;border-radius:8px;border:1px solid var(--border)"></td>
         <td>${esc(c.name)}</td>
         <td style="color:var(--text-2)">${esc(c.category)}</td>
         <td class="mono">${c.sow_window.type==='term' ? c.sow_window.start+'–'+c.sow_window.end : (c.sow_window.seasons||[]).join('/')}</td>
@@ -369,7 +370,7 @@ async function crops(el) {
           <button class="btn small" onclick="openCropEdit(${JSON.stringify(c).replace(/"/g,'&quot;')})">编辑</button>
           <button class="btn small danger" onclick="delCrop('${c.crop_id}')">删除</button>
         </div></td>
-      </tr>`).join('') || '<tr><td colspan="9" class="empty">暂无作物</td></tr>'}</tbody>
+      </tr>`).join('') || '<tr><td colspan="10" class="empty">暂无作物</td></tr>'}</tbody>
     </table></div>
     <button class="btn primary" onclick="openCropEdit()">+ 新增植物(可自动建种子)</button>`;
 }
@@ -377,6 +378,8 @@ let cropDraft = null;
 function openCropEdit(c) {
   cropDraft = c || null;
   const w = c ? c.sow_window : { type: 'term', start: 1, end: 24, grace: 0 };
+  const art = c && c.art ? c.art : {};
+  const artStages = art.stages || ['', '', ''];
   openModal(`
     <h3>${c ? '编辑作物 · ' + esc(c.name) : '新增植物'}</h3>
     <div class="form-row">
@@ -394,6 +397,17 @@ function openCropEdit(c) {
       <div class="form-field"><label>基础单价(金币)</label><input class="inp" type="number" min="1" id="cr-price" value="${c?c.base_price:10}"></div>
     </div>
     <div class="form-field"><label>描述(农谚/百科)</label><input class="inp" id="cr-desc" value="${c?esc(c.description||''):''}"></div>
+    <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
+      <div style="font-size:12px;color:var(--text-2);margin-bottom:8px">美术资产(URL 或 /static 路径,三阶段按生长阶段展示)</div>
+      <div class="form-row">
+        <div class="form-field"><label>种子图标</label><input class="inp mono" id="cr-art-seed" value="${esc(art.seed||'')}"></div>
+        <div class="form-field"><label>苗期图</label><input class="inp mono" id="cr-art-1" value="${esc(artStages[0]||'')}"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-field"><label>生长期图</label><input class="inp mono" id="cr-art-2" value="${esc(artStages[1]||'')}"></div>
+        <div class="form-field"><label>成熟图</label><input class="inp mono" id="cr-art-3" value="${esc(artStages[2]||'')}"></div>
+      </div>
+    </div>
     ${c ? '' : '<div style="margin-top:12px"><label class="form-field" style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="cr-seed" checked> 自动创建对应种子道具</label></div>'}
     <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveCrop()">${c?'保存':'创建'}</button></div>`);
 }
@@ -403,6 +417,7 @@ async function saveCrop() {
     sow_window: { type: 'term', start: +$('#cr-s').value, end: +$('#cr-e').value, grace: +$('#cr-g').value },
     grow_seconds: +$('#cr-grow').value, yield_base: +$('#cr-yield').value, base_price: +$('#cr-price').value,
     description: $('#cr-desc').value.trim(),
+    art: { seed: $('#cr-art-seed').value.trim(), stages: [$('#cr-art-1').value.trim(), $('#cr-art-2').value.trim(), $('#cr-art-3').value.trim()] },
   };
   if (cropDraft) {
     try { await api(`/crops/${cropDraft.crop_id}`, 'PUT', payload); toast('已保存'); }

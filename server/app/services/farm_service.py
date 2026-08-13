@@ -59,6 +59,7 @@ def crop_view(ci: CropInstance, crop: Crop | None) -> dict:
     return {
         "crop_id": str(ci.crop_id),
         "name": crop.name if crop else "?",
+        "art": (crop.art if crop else {}) or {},
         "stage": stage,
         "growth_progress": int(progress),
         "water_level": ci.water_level,

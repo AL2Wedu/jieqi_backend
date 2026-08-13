@@ -60,6 +60,7 @@ class AdminCropPayload(BaseModel):
     base_price: int | None = None
     unlock_level: int | None = None
     description: str | None = None
+    art: dict | None = None
     sort_order: int | None = None
     active: bool | None = None
     auto_seed: bool = False

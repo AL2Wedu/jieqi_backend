@@ -26,10 +26,19 @@ def item_uuid(code: str) -> uuid.UUID:
     return uuid.uuid5(uuid.NAMESPACE_URL, f"item:{code}")
 
 
+_ART: dict = {}
+
+
 def seed_if_empty(db: Session) -> bool:
     """仅在 term_config 为空时导入;返回是否执行了导入。"""
     if db.query(TermConfig).count() > 0:
         return False
+
+    # 生成 6 种初始作物的美术资产(SVG),写入 static/assets/crops/<slug>/
+    from app.core.svg_art import generate_all
+
+    global _ART
+    _ART = generate_all()
 
     for t in _load("term_config.json"):
         db.add(
@@ -52,6 +61,7 @@ def seed_if_empty(db: Session) -> bool:
                 yield_base=c["yield_base"],
                 base_price=c["base_price"],
                 description=c.get("description"),
+                art=_ART.get(c.get("slug"), {}),
                 sort_order=c.get("sort_order", 0),
             )
         )
