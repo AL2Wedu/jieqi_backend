@@ -581,7 +581,9 @@
 | 21003 | CROP_NOT_AVAILABLE | 400 | 当前节气不在该作物宜种窗 |
 | 21004 | PLOT_EMPTY | 400 | 地块没有作物 |
 | 21005 | CROP_NOT_FOUND | 400 | 作物不存在 |
-| 21006 | CROP_EXISTS / NOT_ENOUGH_ITEM | 400 | 作物重名 / 种子不足 |
+| 21005 | SEED_NOT_FOUND | 400 | 该作物没有对应种子道具 |
+| 21006 | CROP_EXISTS | 400 | 作物重名(管理端新增) |
+| 21006 | NOT_ENOUGH_ITEM | 400 | 种子不足(播种时) |
 | 21007 | CROP_IN_USE | 400 | 有种植中的作物,无法删除 |
 | 22001 | NOT_ENOUGH_ITEM | 400 | 道具数量不足 |
 | 22002 | ITEM_NOT_FOUND | 400 | 道具/商品不存在 |
