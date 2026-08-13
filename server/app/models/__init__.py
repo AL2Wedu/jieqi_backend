@@ -67,6 +67,9 @@ class Player(Base):
     unlocked_term_index: Mapped[int] = mapped_column(SmallInteger, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 每用户世界时钟:world_accum 为相对全局纪元的累计世界秒(在线 1× / 离线 offline_factor)
+    world_accum: Mapped[float] = mapped_column(Float, default=0.0)
+    world_last_sync: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class CoinTransaction(Base):

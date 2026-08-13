@@ -23,7 +23,7 @@ from app.models import (
     UserShopItem,
 )
 from app.services import shop_service
-from app.services import calendar_service, farm_service
+from app.services import calendar_service, farm_service, world_service
 from scripts.seed import crop_uuid, item_uuid
 
 _SENSITIVE_ENV = ("password", "secret", "token", "auth", "key", "credential")
@@ -636,3 +636,166 @@ def reset_user_shop(db, player_id: str) -> dict:
     shop.restocked_at = datetime.now(timezone.utc)
     db.commit()
     return {"player_id": player_id, "reset": True}
+
+
+# ---------- 玩家资产 / 农场 / 每用户世界(节气独立) ----------
+
+def _player_by_user(db: Session, user_id: str) -> Player:
+    try:
+        user = db.query(User).filter(User.id == uuid.UUID(user_id)).first()
+    except ValueError:
+        user = None
+    if not user:
+        raise AppError("USER_NOT_FOUND", "用户不存在", code=20002)
+    player = db.query(Player).filter(Player.user_id == user.id).first()
+    if not player:
+        raise AppError("USER_NOT_FOUND", "玩家不存在", code=20002)
+    return player
+
+
+def update_player_assets(db: Session, user_id: str, data: dict) -> dict:
+    """玩家资产编辑:金币 / 等级 / 经验 / 解锁节气(全可选)。"""
+    player = _player_by_user(db, user_id)
+    for field in ("coins", "level", "exp", "unlocked_term_index"):
+        if field in data and data[field] is not None:
+            setattr(player, field, data[field])
+    db.commit()
+    user = db.query(User).filter(User.id == player.user_id).first()
+    return {
+        "player_id": str(player.id),
+        "name": user.name,
+        "level": player.level,
+        "exp": player.exp,
+        "coins": player.coins,
+        "unlocked_term_index": player.unlocked_term_index,
+    }
+
+
+def list_player_farm(db: Session, user_id: str) -> dict:
+    """某用户的农场:地块 + 当前作物 + 玩家当前节气(每用户世界)。"""
+    player = _player_by_user(db, user_id)
+    farm = db.query(Farm).filter(Farm.owner_id == player.id).first()
+    if not farm:
+        raise AppError("FARM_NOT_FOUND", "农场不存在", code=21000)
+    plots = db.query(Plot).filter(Plot.farm_id == farm.id).order_by(Plot.idx).all()
+    active = (
+        db.query(CropInstance)
+        .filter(
+            CropInstance.plot_id.in_([p.id for p in plots]),
+            CropInstance.harvested_at.is_(None),
+        )
+        .all()
+    )
+    crops = {ci.plot_id: ci for ci in active}
+    crop_defs = {c.id: c for c in db.query(Crop).all()}
+    term, cycle, remaining = world_service.peek_term(db, player)
+    user = db.query(User).filter(User.id == player.user_id).first()
+    return {
+        "player_id": str(player.id),
+        "name": user.name,
+        "farm": {
+            "farm_id": str(farm.id),
+            "name": farm.name,
+            "plot_count": farm.plot_count,
+            "grid": {"cols": farm_service.FARM_COLS, "rows": farm_service.FARM_ROWS},
+        },
+        "current_term": {
+            "term_index": term.term_index,
+            "name": term.name,
+            "cycle": cycle,
+            "remaining_sec": remaining,
+        },
+        "plots": [
+            {
+                "plot_id": str(p.id),
+                "idx": p.idx,
+                "soil_quality": p.soil_quality,
+                "locked": p.locked,
+                "crop": _plot_crop_view(crops.get(p.id), crop_defs),
+            }
+            for p in plots
+        ],
+    }
+
+
+def _plot_crop_view(ci, crop_defs):
+    if ci is None:
+        return None
+    return farm_service.crop_view(ci, crop_defs.get(ci.crop_id))
+
+
+def update_player_plot(db: Session, user_id: str, plot_idx: int, data: dict) -> dict:
+    """农场地块管理:锁定/解锁、土壤肥力。"""
+    player = _player_by_user(db, user_id)
+    farm = db.query(Farm).filter(Farm.owner_id == player.id).first()
+    if not farm:
+        raise AppError("FARM_NOT_FOUND", "农场不存在", code=21000)
+    plot = (
+        db.query(Plot)
+        .filter(Plot.farm_id == farm.id, Plot.idx == plot_idx)
+        .first()
+    )
+    if not plot:
+        raise AppError("PLOT_NOT_FOUND", "地块不存在", code=21001)
+    if data.get("locked") is not None:
+        plot.locked = data["locked"]
+    if data.get("soil_quality") is not None:
+        plot.soil_quality = data["soil_quality"]
+    db.commit()
+    return {
+        "plot_id": str(plot.id),
+        "idx": plot.idx,
+        "soil_quality": plot.soil_quality,
+        "locked": plot.locked,
+    }
+
+
+def list_worlds(db: Session, page: int, page_size: int) -> dict:
+    """每用户世界/节气列表(含在线状态与累计世界秒)。"""
+    total = db.query(func.count(Player.id)).scalar() or 0
+    rows = (
+        db.query(Player, User)
+        .join(User, User.id == Player.user_id)
+        .order_by(Player.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    now = datetime.now(timezone.utc)
+    cfg = world_service.world_config(db)
+    items = []
+    for player, user in rows:
+        term, cycle, remaining = world_service.peek_term(db, player, now)
+        items.append(
+            {
+                "player_id": str(player.id),
+                "name": user.name,
+                "online": world_service.is_online(player, now, cfg["online_threshold"]),
+                "last_active_at": (
+                    player.last_active_at.isoformat() if player.last_active_at else None
+                ),
+                "world_accum": float(player.world_accum or 0.0),
+                "world_last_sync": (
+                    player.world_last_sync.isoformat() if player.world_last_sync else None
+                ),
+                "current_term": {
+                    "term_index": term.term_index,
+                    "name": term.name,
+                    "cycle": cycle,
+                    "remaining_sec": remaining,
+                },
+            }
+        )
+    return {"items": items, "page": page, "page_size": page_size, "total": total}
+
+
+def update_world(db: Session, player_id: str, accum: float | None = None, reset: bool = False) -> dict:
+    """重置/设定某玩家世界:reset 回到纪元起点(立春);accum 设定累计世界秒。"""
+    try:
+        pid = uuid.UUID(player_id)
+    except ValueError:
+        raise AppError("USER_NOT_FOUND", "用户不存在", code=20002)
+    player = db.query(Player).filter(Player.id == pid).first()
+    if not player:
+        raise AppError("USER_NOT_FOUND", "玩家不存在", code=20002)
+    return world_service.set_world(db, player, accum=accum, reset=reset)

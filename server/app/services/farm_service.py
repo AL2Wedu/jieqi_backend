@@ -15,7 +15,7 @@ from app.models import (
     Plot,
     UserItem,
 )
-from app.services.calendar_service import current_calendar, get_current_term
+from app.services import world_service
 
 _SEASON_TERMS = {1: (1, 6), 2: (7, 12), 3: (13, 18), 4: (19, 24)}  # 春/夏/秋/冬
 
@@ -105,7 +105,7 @@ def get_farm_state(db: Session, player) -> dict:
             "plot_count": farm.plot_count,
             "grid": {"cols": FARM_COLS, "rows": FARM_ROWS},  # 4×5,idx 行优先
         },
-        "current_term": current_calendar(db),
+        "current_term": world_service.current_calendar(db, player),
         "plots": plot_list,
     }
 
@@ -149,7 +149,7 @@ def sow(db: Session, player, plot_id: str, crop_id: str) -> dict:
     if existing:
         raise AppError("PLOT_OCCUPIED", "该地块已有作物", code=21002)
 
-    term, _, _ = get_current_term(db)
+    term, _, _ = world_service.current_term(db, player)
     if not _check_sow_window(crop, term.term_index):
         raise AppError(
             "CROP_NOT_AVAILABLE", f"当前节气({term.name})不适合种植{crop.name}", code=21003

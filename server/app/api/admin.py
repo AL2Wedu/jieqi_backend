@@ -16,10 +16,13 @@ from app.schemas import (
     AdminCropPayload,
     AdminItemPayload,
     AdminLoginRequest,
+    AdminPlayerAssetsPayload,
+    AdminPlotPayload,
     AdminShopSettingsPayload,
     AdminStatusRequest,
     AdminTermDuration,
     AdminUserShopItemPayload,
+    AdminWorldPayload,
 )
 from app.services import admin_service, ai_service
 
@@ -67,6 +70,17 @@ def user_status(
     db: Session = Depends(get_db),
 ):
     return ok(admin_service.set_user_status(db, user_id, req.status))
+
+
+@router.patch("/users/{user_id}/assets")
+def user_assets(
+    user_id: str,
+    req: AdminPlayerAssetsPayload,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """编辑玩家资产:金币 / 等级 / 经验 / 解锁节气(全可选)。"""
+    return ok(admin_service.update_player_assets(db, user_id, req.model_dump(exclude_none=True)))
 
 
 @router.get("/config")
@@ -199,6 +213,54 @@ def clock_update(
             reset_epoch=req.reset_epoch,
         )
     )
+
+
+# ---------- 玩家资产 / 农场 / 每用户世界(节气独立) ----------
+
+@router.get("/users/{user_id}/farm")
+def user_farm(
+    user_id: str,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """某用户农场:地块 + 当前作物 + 玩家当前节气(每用户世界)。"""
+    return ok(admin_service.list_player_farm(db, user_id))
+
+
+@router.put("/users/{user_id}/plots/{plot_idx}")
+def user_plot(
+    user_id: str,
+    plot_idx: int,
+    req: AdminPlotPayload,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """地块管理:锁定/解锁、土壤肥力。"""
+    return ok(
+        admin_service.update_player_plot(db, user_id, plot_idx, req.model_dump(exclude_none=True))
+    )
+
+
+@router.get("/worlds")
+def worlds(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """每用户世界/节气列表(含在线状态与累计世界秒)。"""
+    return ok(admin_service.list_worlds(db, page, page_size))
+
+
+@router.put("/worlds/{player_id}")
+def world_update(
+    player_id: str,
+    req: AdminWorldPayload,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """重置/设定某玩家世界:reset 回到纪元起点;或设定累计世界秒。"""
+    return ok(admin_service.update_world(db, player_id, accum=req.accum, reset=req.reset))
 
 
 # ---------- AI 设置与用量 ----------

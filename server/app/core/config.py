@@ -1,4 +1,13 @@
+import logging
+import secrets
+import string
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+logger = logging.getLogger("jieqi")
+
+# 管理员密码未配置时随机生成的字符数
+_ADMIN_RANDOM_PASSWORD_LEN = 16
 
 
 class Settings(BaseSettings):
@@ -17,3 +26,14 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+# 密码不应为空:未配置(或 .env 未加载)时随机生成,并在终端显示,避免登录永久失败
+if not settings.admin_password:
+    settings.admin_password = "".join(
+        secrets.choice(string.ascii_letters + string.digits) for _ in range(_ADMIN_RANDOM_PASSWORD_LEN)
+    )
+    print(
+        f"[jieqi] 未检测到 ADMIN_PASSWORD,已随机生成管理员密码: {settings.admin_password}\n"
+        f"[jieqi] 请用 用户名 '{settings.admin_username}' + 上述密码 登录管理后台;重启服务会重新生成"
+    )
+    logger.warning("ADMIN_PASSWORD 未配置,已随机生成管理员密码")

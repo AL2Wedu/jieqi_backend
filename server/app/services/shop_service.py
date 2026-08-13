@@ -27,7 +27,7 @@ from app.models import (
     UserShop,
     UserShopItem,
 )
-from app.services.calendar_service import current_calendar
+from app.services import world_service
 
 SEASONS = {"spring": (1, 6), "summer": (7, 12), "autumn": (13, 18), "winter": (19, 24)}
 SEASON_NAMES = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
@@ -47,8 +47,9 @@ def get_settings(db: Session) -> ShopSettings:
     return s
 
 
-def current_season(db: Session) -> str:
-    term = current_calendar(db)["term_index"]
+def current_season(db: Session, player: Player) -> str:
+    """季节涨降跟随玩家自己的世界节气(每用户独立)。"""
+    term = world_service.current_calendar(db, player)["term_index"]
     for name, (a, b) in SEASONS.items():
         if a <= term <= b:
             return name
@@ -114,7 +115,7 @@ def shop_state(db: Session, player: Player) -> dict:
     settings = get_settings(db)
     shop = ensure_shop(db, player)
     restocked = _maybe_restock(db, shop, settings)
-    season = current_season(db)
+    season = current_season(db, player)
     rows = {
         r.item_id: r
         for r in db.query(UserShopItem).filter(UserShopItem.player_id == player.id).all()
@@ -233,7 +234,7 @@ def sell_crop(db: Session, player: Player, crop_id: str, quantity: int) -> dict:
     if not crop:
         raise AppError("CROP_NOT_FOUND", "作物不存在", code=21005)
     settings = get_settings(db)
-    season = current_season(db)
+    season = current_season(db, player)
     row = (
         db.query(CropStorage)
         .filter(CropStorage.player_id == player.id, CropStorage.crop_id == cid)
@@ -264,7 +265,7 @@ def sell_crop(db: Session, player: Player, crop_id: str, quantity: int) -> dict:
 
 def storage(db: Session, player: Player) -> dict:
     settings = get_settings(db)
-    season = current_season(db)
+    season = current_season(db, player)
     rows = db.query(CropStorage).filter(CropStorage.player_id == player.id).all()
     crops = {
         c.id: c

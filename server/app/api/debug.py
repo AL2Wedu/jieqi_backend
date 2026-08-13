@@ -9,7 +9,7 @@ from app.core.deps import get_current_player, get_db
 from app.core.errors import AppError, ok
 from app.models import Crop, GameConfig, Player
 from app.schemas import DebugConfigRequest, DebugGrowRequest
-from app.services import calendar_service, farm_service
+from app.services import farm_service, world_service
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 
@@ -41,14 +41,14 @@ def advance_term(
     db: Session = Depends(get_db),
 ):
     _guard()
-    clock = calendar_service.get_clock(db)
-    term, _, _ = calendar_service.get_current_term(db)
-    # 把纪元往前拨一个节气的游戏时长,等效于推进一轮
-    clock.epoch = clock.epoch - timedelta(
-        seconds=term.duration_seconds / float(clock.time_scale)
-    )
+    term, _, _ = world_service.current_term(db, player)
+    # 只推进调用者玩家的世界(向前一个节气时长),其他玩家互不影响
+    player.world_accum = float(player.world_accum or 0.0) + term.duration_seconds
+    now = datetime.now(timezone.utc)
+    player.world_last_sync = now
+    player.last_active_at = now
     db.commit()
-    return ok(calendar_service.current_calendar(db))
+    return ok(world_service.current_calendar(db, player))
 
 
 @router.post("/grow")

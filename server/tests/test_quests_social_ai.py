@@ -83,7 +83,7 @@ def _reg(client, name):
 
 def _advance_to_rice_window(client, h):
     for _ in range(40):
-        cal = client.get("/v1/calendar/current").json()["data"]
+        cal = client.get("/v1/calendar/current", headers=h).json()["data"]
         if 5 <= cal["term_index"] <= 9:
             return
         client.post("/v1/debug/term/advance", headers=h)

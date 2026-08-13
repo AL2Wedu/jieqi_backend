@@ -6,6 +6,7 @@ from app.core.errors import AppError
 from app.core.iploc import resolve as resolve_location
 from app.core.security import create_token, hash_password, verify_password
 from app.models import CoinTransaction, Farm, Player, Plot, User
+from app.services import world_service
 
 START_COINS = 200
 START_PLOTS = 20  # 田地格子:横 4 × 竖 5
@@ -46,6 +47,7 @@ def register(db: Session, name: str, password: str, ip: str | None) -> dict:
     db.flush()
     for i in range(1, START_PLOTS + 1):
         db.add(Plot(farm_id=farm.id, idx=i))
+    world_service.sync_world(db, player)  # 初始化每用户世界(继承全局纪元位置)
     db.add(CoinTransaction(player_id=player.id, amount=START_COINS, reason="register"))
     db.commit()
     return {
@@ -65,6 +67,7 @@ def login(db: Session, name: str, password: str, ip: str | None) -> dict:
     user.last_login_location = resolve_location(ip)
     player = db.query(Player).filter(Player.user_id == user.id).first()
     farm = db.query(Farm).filter(Farm.owner_id == player.id).first()
+    world_service.sync_world(db, player)  # 登录即心跳,恢复每用户世界累计
     db.commit()
     return {
         "token": create_token(str(user.id)),

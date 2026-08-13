@@ -1,6 +1,4 @@
-import asyncio
 import logging
-import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -8,13 +6,12 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import inspect, text
 
 from app.api.router import api
 from app.core.db import SessionLocal, engine
 from app.core.errors import AppError
 from app.models import Base
-from app.services import calendar_service
-from app.ws import manager
 from scripts.seed import seed_if_empty
 
 logger = logging.getLogger("jieqi")
@@ -22,25 +19,20 @@ logger = logging.getLogger("jieqi")
 
 def init_db() -> None:
     Base.metadata.create_all(engine)
+    _ensure_player_world_columns()
 
 
-async def term_broadcast_loop() -> None:
-    """节气切换广播:每轮(默认 5 分钟)推一次 solar_term_change。"""
-    while True:
-        try:
-            with SessionLocal() as db:
-                remaining = calendar_service.next_switch_in(db)
-            await asyncio.sleep(max(1, remaining + 1))
-            with SessionLocal() as db:
-                cal = calendar_service.current_calendar(db)
-            await manager.broadcast(
-                {"type": "solar_term_change", "payload": cal, "ts": int(time.time())}
-            )
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            logger.exception("节气广播异常: %s", e)
-            await asyncio.sleep(5)
+def _ensure_player_world_columns() -> None:
+    """老 dev.db 无每用户世界列:幂等 ALTER 补齐(新库 create_all 已建)。"""
+    try:
+        cols = {c["name"] for c in inspect(engine).get_columns("players")}
+        with engine.begin() as conn:
+            if "world_accum" not in cols:
+                conn.execute(text("ALTER TABLE players ADD COLUMN world_accum REAL DEFAULT 0"))
+            if "world_last_sync" not in cols:
+                conn.execute(text("ALTER TABLE players ADD COLUMN world_last_sync DATETIME"))
+    except Exception as e:  # noqa: BLE001 迁移失败不阻塞启动(测试库重建不受影响)
+        logger.warning("玩家世界列迁移跳过: %s", e)
 
 
 @asynccontextmanager
@@ -48,9 +40,7 @@ async def lifespan(app: FastAPI):
     init_db()
     with SessionLocal() as db:
         seed_if_empty(db)
-    task = asyncio.create_task(term_broadcast_loop())
     yield
-    task.cancel()
 
 
 app = FastAPI(title="jieqi_backend", version="0.1.0", lifespan=lifespan)

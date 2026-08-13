@@ -33,6 +33,10 @@ def get_current_player(
         raise AppError("UNAUTHORIZED", "登录已过期,请重新登录", http_status=401, code=10003)
     if not player:
         raise AppError("UNAUTHORIZED", "玩家不存在", http_status=401, code=10002)
+    from app.services import world_service
+
+    world_service.sync_world(db, player)  # 在线心跳 + 每用户世界时钟推进
+    db.commit()
     return player
 
 

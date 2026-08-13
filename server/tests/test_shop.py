@@ -74,7 +74,7 @@ def test_season_price_fluctuation():
 
         def advance_to(pred):
             for _ in range(30):
-                if pred(c.get("/v1/calendar/current").json()["data"]["term_index"]):
+                if pred(c.get("/v1/calendar/current", headers=h).json()["data"]["term_index"]):
                     return
                 c.post("/v1/debug/term/advance", headers=h)
 
@@ -95,7 +95,7 @@ def test_harvest_storage_and_sell():
         h = _reg(c, "shop_storage")
         # 推进到水稻宜种窗
         for _ in range(40):
-            cal = c.get("/v1/calendar/current").json()["data"]
+            cal = c.get("/v1/calendar/current", headers=h).json()["data"]
             if 5 <= cal["term_index"] <= 9:
                 break
             c.post("/v1/debug/term/advance", headers=h)

@@ -174,7 +174,7 @@ def test_plantings_view(client):
     ph = {"Authorization": f"Bearer {token}"}
     # 推进到水稻宜种窗
     for _ in range(40):
-        cal = client.get("/v1/calendar/current").json()["data"]
+        cal = client.get("/v1/calendar/current", headers=ph).json()["data"]
         if 5 <= cal["term_index"] <= 9:
             break
         client.post("/v1/debug/term/advance", headers=ph)

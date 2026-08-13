@@ -167,6 +167,7 @@
     <button class="nav-btn" data-view="items" onclick="switchView('items')"><span class="nav-ico">🎒</span>道具管理</button>
     <button class="nav-btn" data-view="pricing" onclick="switchView('pricing')"><span class="nav-ico">¥</span>定价</button>
     <button class="nav-btn" data-view="terms" onclick="switchView('terms')"><span class="nav-ico">☀</span>节气设置</button>
+    <button class="nav-btn" data-view="worlds" onclick="switchView('worlds')"><span class="nav-ico">🌍</span>世界管理</button>
     <button class="nav-btn" data-view="shop" onclick="switchView('shop')"><span class="nav-ico">🛒</span>商店管理</button>
     <button class="nav-btn" data-view="ai" onclick="switchView('ai')"><span class="nav-ico">🤖</span>AI 设置</button>
     <div class="side-foot">
@@ -235,7 +236,7 @@ function enterApp() {
 }
 
 /* ---------- 视图路由 ---------- */
-const views = { dashboard, users, config, crops, plantings, items, pricing, terms, shop, ai };
+const views = { dashboard, users, config, crops, plantings, items, pricing, terms, worlds, shop, ai };
 function switchView(name) {
   state.view = name;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
@@ -284,7 +285,11 @@ async function users(el) {
         <td>${u.player ? u.player.coins : '—'}</td>
         <td class="mono" style="color:var(--text-3)">${esc(u.register_ip || '—')}</td>
         <td style="color:var(--text-3)">${esc((u.created_at||'').slice(0,10))}</td>
-        <td><button class="btn small ${u.status===1?'danger':'green'}" onclick="toggleBan('${u.user_id}', ${u.status===1?0:1})">${u.status===1?'封禁':'解封'}</button></td>
+        <td><div class="row-actions">
+          <button class="btn small" onclick="openAssets('${u.user_id}')">资产</button>
+          <button class="btn small" onclick="openFarm('${u.user_id}')">农场</button>
+          <button class="btn small ${u.status===1?'danger':'green'}" onclick="toggleBan('${u.user_id}', ${u.status===1?0:1})">${u.status===1?'封禁':'解封'}</button>
+        </div></td>
       </tr>`).join('') || '<tr><td colspan="8" class="empty">暂无用户</td></tr>'}</tbody>
     </table>
     <div class="pager"><button class="btn small" onclick="userPage--;loadView()" ${userPage<=1?'disabled':''}>‹ 上一页</button><span>第 ${userPage} / ${totalPages} 页</span><button class="btn small" onclick="userPage++;loadView()" ${userPage>=totalPages?'disabled':''}>下一页 ›</button></div>
@@ -292,6 +297,97 @@ async function users(el) {
 }
 async function toggleBan(uid, status) {
   try { await api(`/users/${uid}/status`, 'PATCH', { status }); toast(status ? '已解封' : '已封禁'); loadView(); }
+  catch (err) { toast(err.message, 'err'); }
+}
+
+/* ---------- 玩家资产编辑 ---------- */
+function openAssets(uid) {
+  openModal(`<h3>编辑玩家资产</h3>
+    <div class="form-field"><label>金币</label><input class="inp" id="a-coins" type="number" min="0"></div>
+    <div class="form-field" style="margin-top:10px"><label>等级</label><input class="inp" id="a-level" type="number" min="1"></div>
+    <div class="form-field" style="margin-top:10px"><label>经验</label><input class="inp" id="a-exp" type="number" min="0"></div>
+    <div class="form-field" style="margin-top:10px"><label>已解锁节气(1-24)</label><input class="inp" id="a-term" type="number" min="1" max="24"></div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveAssets('${uid}')">保存</button></div>`);
+}
+async function saveAssets(uid) {
+  const ids = [['a-coins','coins'], ['a-level','level'], ['a-exp','exp'], ['a-term','unlocked_term_index']];
+  const payload = {};
+  for (const [id, key] of ids) {
+    const v = $(id).value;
+    if (v !== '') payload[key] = parseInt(v, 10);
+  }
+  try { await api('/users/' + uid + '/assets', 'PATCH', payload); closeModal(); toast('资产已更新'); loadView(); }
+  catch (err) { toast(err.message, 'err'); }
+}
+
+/* ---------- 农场地块管理 ---------- */
+async function openFarm(uid) {
+  try {
+    const d = await api('/users/' + uid + '/farm');
+    openModal(`<h3>农场 · ${esc(d.name)}</h3>
+      <div class="mono" style="color:var(--text-3);margin-bottom:14px">当前节气 ${esc(d.current_term.name)}(${d.current_term.term_index}/24) · 剩 ${d.current_term.remaining_sec}s</div>
+      <table><thead><tr><th>地块</th><th>肥力</th><th>状态</th><th>作物</th><th>操作</th></tr></thead>
+      <tbody>${d.plots.map(p => `<tr>
+        <td class="mono">#${p.idx}</td>
+        <td><input class="inp mini mono" id="sq-${p.idx}" value="${p.soil_quality}" type="number" min="1" max="5"></td>
+        <td>${p.locked ? '<span class="badge bad">锁定</span>' : '<span class="badge ok">可用</span>'}</td>
+        <td>${p.crop ? esc(p.crop.name) + ' <span class="mono" style="color:var(--text-3)">阶段' + p.crop.stage + ' · ' + p.crop.growth_progress + '%</span>' : '—'}</td>
+        <td><div class="row-actions">
+          <button class="btn small" onclick="savePlot('${uid}', ${p.idx})">存肥力</button>
+          <button class="btn small" onclick="togglePlot('${uid}', ${p.idx}, ${p.locked})">${p.locked?'解锁':'锁定'}</button>
+        </div></td>
+      </tr>`).join('')}</tbody></table>
+      <div class="modal-foot"><button class="btn" onclick="closeModal()">关闭</button></div>`);
+  } catch (err) { toast(err.message, 'err'); }
+}
+async function savePlot(uid, idx) {
+  const sq = parseInt($('#sq-' + idx).value, 10);
+  if (isNaN(sq)) { toast('肥力需为数字', 'err'); return; }
+  try { await api(`/users/${uid}/plots/${idx}`, 'PUT', { soil_quality: sq }); toast('地块 #' + idx + ' 已保存'); openFarm(uid); }
+  catch (err) { toast(err.message, 'err'); }
+}
+async function togglePlot(uid, idx, locked) {
+  try { await api(`/users/${uid}/plots/${idx}`, 'PUT', { locked: !locked }); openFarm(uid); }
+  catch (err) { toast(err.message, 'err'); }
+}
+
+/* ---------- 世界管理(每用户独立节气) ---------- */
+let worldPage = 1;
+async function worlds(el) {
+  const d = await api(`/worlds?page=${worldPage}&page_size=20`);
+  const totalPages = Math.max(1, Math.ceil(d.total / d.page_size));
+  el.innerHTML = `
+    <div class="page-head"><h1>世界管理</h1><span class="mono">每用户独立节气 · 在线 1× / 离线 offline_factor(game_config)</span></div>
+    <div class="panel"><table>
+      <thead><tr><th>玩家</th><th>当前节气</th><th>累计世界秒</th><th>状态</th><th>最近活跃</th><th>操作</th></tr></thead>
+      <tbody>${d.items.map(w => `<tr>
+        <td style="font-weight:500">${esc(w.name)}</td>
+        <td>${esc(w.current_term.name)} <span class="mono" style="color:var(--text-3)">${w.current_term.term_index}/24 · 剩 ${w.current_term.remaining_sec}s</span></td>
+        <td class="mono">${Math.round(w.world_accum)}</td>
+        <td>${w.online ? '<span class="badge ok">在线</span>' : '<span class="badge off">离线</span>'}</td>
+        <td class="mono" style="color:var(--text-3)">${esc((w.last_active_at||'—').slice(0,19).replace('T',' '))}</td>
+        <td><div class="row-actions">
+          <button class="btn small" onclick="setWorld('${w.player_id}')">设定</button>
+          <button class="btn small danger" onclick="resetWorld('${w.player_id}')">重置</button>
+        </div></td>
+      </tr>`).join('') || '<tr><td colspan="6" class="empty">暂无玩家</td></tr>'}</tbody>
+    </table>
+    <div class="pager"><button class="btn small" onclick="worldPage--;loadView()" ${worldPage<=1?'disabled':''}>‹ 上一页</button><span>第 ${worldPage} / ${totalPages} 页</span><button class="btn small" onclick="worldPage++;loadView()" ${worldPage>=totalPages?'disabled':''}>下一页 ›</button></div>
+    </div>`;
+}
+function setWorld(pid) {
+  openModal(`<h3>设定世界</h3>
+    <div class="form-field"><label>累计世界秒(留空 = 保持当前)</label><input class="inp mono" id="w-accum" type="number" min="0"></div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveWorld('${pid}')">保存</button></div>`);
+}
+async function saveWorld(pid) {
+  const raw = $('#w-accum').value;
+  if (raw === '') { closeModal(); return; }
+  try { await api('/worlds/' + pid, 'PUT', { accum: parseFloat(raw) }); closeModal(); toast('世界已设定'); loadView(); }
+  catch (err) { toast(err.message, 'err'); }
+}
+async function resetWorld(pid) {
+  try { await api('/worlds/' + pid, 'PUT', { reset: true }); toast('世界已重置回立春'); loadView(); }
   catch (err) { toast(err.message, 'err'); }
 }
 

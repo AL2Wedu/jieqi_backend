@@ -118,3 +118,26 @@ class AdminClockPayload(BaseModel):
     time_scale: float | None = Field(default=None, gt=0, le=100)
     paused: bool | None = None
     reset_epoch: bool = False
+
+
+class AdminPlayerAssetsPayload(BaseModel):
+    """玩家资产编辑(全可选,仅改提供的字段)。"""
+
+    coins: int | None = Field(default=None, ge=0)
+    level: int | None = Field(default=None, ge=1)
+    exp: int | None = Field(default=None, ge=0)
+    unlocked_term_index: int | None = Field(default=None, ge=1, le=24)
+
+
+class AdminPlotPayload(BaseModel):
+    """农场地块管理:解锁/土壤肥力。"""
+
+    locked: bool | None = None
+    soil_quality: int | None = Field(default=None, ge=1, le=5)
+
+
+class AdminWorldPayload(BaseModel):
+    """每用户世界覆盖:reset 回到纪元起点(立春);或设定累计世界秒。"""
+
+    accum: float | None = Field(default=None, ge=0)
+    reset: bool = False

@@ -36,14 +36,14 @@ def test_full_flow(client):
     r = client.post("/v1/auth/login", json={"name": "testuser1", "password": "pass123"})
     assert r.json()["code"] == 0
 
-    # 日历
-    r = client.get("/v1/calendar/current").json()
+    # 日历(每用户世界,需登录)
+    r = client.get("/v1/calendar/current", headers=h).json()
     assert r["code"] == 0 and 1 <= r["data"]["term_index"] <= 24
     assert r["data"]["remaining_sec"] > 0
 
     # 推进节气直到进入水稻宜种窗(5清明-7谷雨,含宽限期 9)
     for _ in range(40):
-        cal = client.get("/v1/calendar/current").json()["data"]
+        cal = client.get("/v1/calendar/current", headers=h).json()["data"]
         if 5 <= cal["term_index"] <= 9:
             break
         client.post("/v1/debug/term/advance", headers=h)
