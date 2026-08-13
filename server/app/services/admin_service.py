@@ -16,10 +16,11 @@ from app.models import (
     GameConfig,
     Item,
     Player,
+    Plot,
     TermConfig,
     User,
 )
-from app.services import calendar_service
+from app.services import calendar_service, farm_service
 from scripts.seed import crop_uuid, item_uuid
 
 _SENSITIVE_ENV = ("password", "secret", "token", "auth", "key", "credential")
@@ -185,6 +186,45 @@ def _crop_view(c: Crop) -> dict:
 def list_crops(db: Session) -> dict:
     rows = db.query(Crop).order_by(Crop.sort_order, Crop.name).all()
     return {"items": [_crop_view(c) for c in rows]}
+
+
+def list_plantings(
+    db: Session, page: int, page_size: int, active_only: bool = True
+) -> dict:
+    """全服每株种植中的植物实时状态(服务器权威)。"""
+    q = (
+        db.query(CropInstance, Plot, Farm, Player, User, Crop)
+        .join(Plot, CropInstance.plot_id == Plot.id)
+        .join(Farm, Plot.farm_id == Farm.id)
+        .join(Player, Farm.owner_id == Player.id)
+        .join(User, Player.user_id == User.id)
+        .join(Crop, CropInstance.crop_id == Crop.id)
+    )
+    if active_only:
+        q = q.filter(CropInstance.harvested_at.is_(None))
+    total = q.count()
+    rows = (
+        q.order_by(CropInstance.sowed_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    items = []
+    for ci, plot, farm, player, user, crop in rows:
+        view = farm_service.crop_view(ci, crop)  # stage/progress/water/predicted(服务器推导)
+        items.append(
+            {
+                "planting_id": str(ci.id),
+                "player": user.name,
+                "farm": farm.name,
+                "plot_idx": plot.idx,
+                "crop": crop.name,
+                **view,
+                "sowed_term_index": ci.sowed_term_index,
+                "sowed_at": ci.sowed_at.isoformat(),
+            }
+        )
+    return {"items": items, "page": page, "page_size": page_size, "total": total}
 
 
 def create_crop(db: Session, data: dict, auto_seed: bool = False) -> dict:

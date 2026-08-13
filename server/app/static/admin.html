@@ -163,6 +163,7 @@
     <button class="nav-btn" data-view="users" onclick="switchView('users')"><span class="nav-ico">👥</span>用户列表</button>
     <button class="nav-btn" data-view="config" onclick="switchView('config')"><span class="nav-ico">⚙</span>全局配置</button>
     <button class="nav-btn" data-view="crops" onclick="switchView('crops')"><span class="nav-ico">🌾</span>作物管理</button>
+    <button class="nav-btn" data-view="plantings" onclick="switchView('plantings')"><span class="nav-ico">🌱</span>种植状态</button>
     <button class="nav-btn" data-view="items" onclick="switchView('items')"><span class="nav-ico">🎒</span>道具管理</button>
     <button class="nav-btn" data-view="pricing" onclick="switchView('pricing')"><span class="nav-ico">¥</span>定价</button>
     <button class="nav-btn" data-view="terms" onclick="switchView('terms')"><span class="nav-ico">☀</span>节气设置</button>
@@ -234,7 +235,7 @@ function enterApp() {
 }
 
 /* ---------- 视图路由 ---------- */
-const views = { dashboard, users, config, crops, items, pricing, terms };
+const views = { dashboard, users, config, crops, plantings, items, pricing, terms };
 function switchView(name) {
   state.view = name;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
@@ -417,6 +418,34 @@ async function delCrop(id) {
   if (!confirm('确定删除该作物?(软删,有种植中的作物会拒绝)')) return;
   try { await api('/crops/' + id, 'DELETE'); toast('已删除'); loadView(); }
   catch (err) { toast(err.message, 'err'); }
+}
+
+/* ---------- 种植状态(全服每株植物实时状态) ---------- */
+let plantPage = 1;
+const STAGE_NAME = { 1: '苗期', 2: '生长期', 3: '成熟' };
+async function plantings(el) {
+  const d = await api(`/plantings?active=true&page=${plantPage}&page_size=20`);
+  const totalPages = Math.max(1, Math.ceil(d.total / d.page_size));
+  el.innerHTML = `
+    <div class="page-head"><h1>种植状态</h1><span class="mono">全服 ${d.total} 株种植中 · 服务器权威状态</span></div>
+    <div class="panel"><table>
+      <thead><tr><th>玩家</th><th>农场</th><th>地块</th><th>作物</th><th>阶段</th><th>生长进度</th><th>水分</th><th>播种节气</th><th>播种时间</th><th>预期成熟</th></tr></thead>
+      <tbody>${d.items.map(p => `
+        <tr>
+          <td>${esc(p.player)}</td>
+          <td style="color:var(--text-2)">${esc(p.farm)}</td>
+          <td class="mono">#${p.plot_idx}</td>
+          <td style="font-weight:500">${esc(p.crop)}</td>
+          <td>${p.stage === 3 ? '<span class="badge ok">成熟</span>' : '<span class="badge">' + (STAGE_NAME[p.stage] || p.stage) + '</span>'}</td>
+          <td><div style="display:flex;align-items:center;gap:8px"><div style="width:90px;height:5px;background:var(--surface-3);border-radius:3px;overflow:hidden"><div style="width:${p.growth_progress}%;height:100%;background:var(--green)"></div></div><span class="mono" style="color:var(--text-2);font-size:12px">${p.growth_progress}%</span></div></td>
+          <td class="mono">${p.water_level}</td>
+          <td class="mono">${p.sowed_term_index}</td>
+          <td class="mono" style="color:var(--text-3)">${esc((p.sowed_at||'').slice(0,19).replace('T',' '))}</td>
+          <td class="mono" style="color:var(--text-3)">${p.predicted_harvest_at ? esc(p.predicted_harvest_at.slice(0,19).replace('T',' ')) : '—'}</td>
+        </tr>`).join('') || '<tr><td colspan="10" class="empty">当前没有种植中的作物</td></tr>'}</tbody>
+    </table>
+    <div class="pager"><button class="btn small" onclick="plantPage--;loadView()" ${plantPage<=1?'disabled':''}>‹ 上一页</button><span>第 ${plantPage} / ${totalPages} 页</span><button class="btn small" onclick="plantPage++;loadView()" ${plantPage>=totalPages?'disabled':''}>下一页 ›</button></div>
+    </div>`;
 }
 
 /* ---------- 道具管理 ---------- */

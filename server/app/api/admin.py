@@ -95,6 +95,17 @@ def crops(admin: str = Depends(get_current_admin), db: Session = Depends(get_db)
     return ok(admin_service.list_crops(db))
 
 
+@router.get("/plantings")
+def plantings(
+    active: bool = Query(default=True),
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    return ok(admin_service.list_plantings(db, page, page_size, active_only=active))
+
+
 @router.post("/crops")
 def crops_create(
     req: AdminCropPayload,

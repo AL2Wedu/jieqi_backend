@@ -156,6 +156,44 @@ def test_items_crud(client):
     assert r["code"] == 0 and r["data"]["active"] is False
 
 
+def test_plantings_view(client):
+    """全服种植状态:每株植物的服务器权威状态可见,收获后不再列为种植中。"""
+    _, h = _admin_login(client)
+    # 准备一个玩家 + 一株作物
+    reg = client.post("/v1/auth/register", json={"name": "plant_owner", "password": "pass123"}).json()
+    token = reg["data"]["token"]
+    ph = {"Authorization": f"Bearer {token}"}
+    # 推进到水稻宜种窗
+    for _ in range(40):
+        cal = client.get("/v1/calendar/current").json()["data"]
+        if 5 <= cal["term_index"] <= 9:
+            break
+        client.post("/v1/debug/term/advance", headers=ph)
+    shop = client.get("/v1/shop/items").json()["data"]["items"]
+    seed = next(i for i in shop if i["code"] == "seed_rice")
+    client.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=ph)
+    plot = client.get("/v1/farm/state", headers=ph).json()["data"]["plots"][0]["plot_id"]
+    client.post(f"/v1/farm/plots/{plot}/sow", json={"crop_id": seed["effect"]["crop_id"]}, headers=ph)
+
+    # 种植状态列表可见该株
+    r = client.get("/v1/admin/plantings", headers=h).json()
+    assert r["code"] == 0
+    mine = [p for p in r["data"]["items"] if p["player"] == "plant_owner"]
+    assert len(mine) == 1
+    p = mine[0]
+    assert p["crop"] == "水稻"
+    assert p["stage"] in (1, 2, 3)
+    assert 0 <= p["growth_progress"] <= 100
+    assert p["water_level"] == 100
+    assert p["plot_idx"] == 1
+
+    # 收获后不再是"种植中"
+    client.post("/v1/debug/grow", json={"plot_id": plot}, headers=ph)
+    client.post(f"/v1/farm/plots/{plot}/harvest", headers=ph)
+    r = client.get("/v1/admin/plantings", headers=h).json()
+    assert not any(p["player"] == "plant_owner" for p in r["data"]["items"])
+
+
 def test_terms_and_clock(client):
     _, h = _admin_login(client)
     r = client.get("/v1/admin/terms", headers=h).json()
