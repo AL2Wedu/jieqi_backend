@@ -97,6 +97,7 @@
 
 # 3. 设计文档
 
+- [API 文档(完整端点/请求响应/错误码/示例)](API.md)
 - [后端总体框架](docs/01-AL2Wedu-backend-framework.md)
 - [数据库 Schema 说明](docs/02-数据库Schema设计.md)
 - [API 契约与扩展性规范](docs/03-API契约与扩展性设计.md)
