@@ -182,10 +182,8 @@
   <div id="term-bar">
     <div id="term-head">
       <span class="t-dot" id="term-dot"></span>
-      <span class="t-label">PowerShell 终端</span>
-      <button class="btn small green" onclick="termRun('Set-Location \'C:\\Users\\YsyTom\\Desktop\\AL2Wedu\\jieqi_backend\\server\'; uv run uvicorn app.main:app --host 0.0.0.0 --port 8000\r')">▶ 启动后端</button>
-      <button class="btn small danger" onclick="termRun('\u0003')">■ 停止(中断)</button>
-      <button class="btn small" onclick="termRun('cls\r')">清屏命令</button>
+      <span class="t-label">后端日志 · 实时监控(server.out.log)</span>
+      <button class="btn small" onclick="termClear()">清屏</button>
       <span class="spacer"></span>
       <button class="btn small" onclick="toggleTerm()">收起 / 展开</button>
     </div>
@@ -606,34 +604,35 @@ function openModal(html) { $('#modal-box').innerHTML = html; $('#modal').classLi
 function closeModal() { $('#modal').classList.remove('on'); }
 $('#modal').addEventListener('click', e => { if (e.target === $('#modal')) closeModal(); });
 
-/* ---------- 终端 ---------- */
+/* ---------- 后端日志监控(只读流,等价 Get-Content -Wait) ---------- */
 let term = null, termWS = null;
 function initTerminal() {
   if (!window.Terminal) { $('#xterm').innerHTML = '<div class="term-msg">xterm.js 未加载</div>'; return; }
   term = new Terminal({
     theme: { background: '#0f0f0f', foreground: '#d6d6d6', cursor: '#3ecf8e', selectionBackground: 'rgba(62,207,142,.25)' },
-    fontSize: 13, fontFamily: "'Source Code Pro',Consolas,monospace", cursorBlink: true,
+    fontSize: 13, fontFamily: "'Source Code Pro',Consolas,monospace", cursorBlink: false,
     convertEol: true,
   });
   term.open(document.getElementById('xterm'));
-  term.onData(d => { if (termWS && termWS.readyState === 1) termWS.send(JSON.stringify({ type: 'input', data: d })); });
+  term.write('\x1b[32m[日志监控] 连接中…\x1b[0m\r\n');
 }
 function connectTerminal() {
   if (!term) return;
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  termWS = new WebSocket(`${proto}://${location.host}/v1/admin/terminal?token=${encodeURIComponent(state.token)}`);
+  termWS = new WebSocket(`${proto}://${location.host}/v1/admin/logs?token=${encodeURIComponent(state.token)}`);
   termWS.onmessage = e => {
     const m = JSON.parse(e.data);
-    if (m.type === 'data') term.write(m.data);
-    else if (m.type === 'error') term.write('\r\n\x1b[31m' + m.data + '\x1b[0m\r\n');
+    if (m.type === 'log') term.writeln(m.data);
+    else if (m.type === 'error') term.writeln('\x1b[33m' + m.data + '\x1b[0m');
   };
-  termWS.onopen = () => { $('#term-dot').classList.add('on'); term.write('\x1b[32m[终端已连接]\x1b[0m\r\n'); };
-  termWS.onclose = () => { $('#term-dot').classList.remove('on'); term.write('\r\n\x1b[33m[终端连接已断开]\x1b[0m\r\n'); };
+  termWS.onopen = () => $('#term-dot').classList.add('on');
+  termWS.onclose = () => {
+    $('#term-dot').classList.remove('on');
+    term.writeln('\r\n\x1b[33m[日志连接已断开,5 秒后重连]\x1b[0m');
+    setTimeout(() => { try { connectTerminal(); } catch (_) {} }, 5000);
+  };
 }
-function termRun(cmd) {
-  if (termWS && termWS.readyState === 1) termWS.send(JSON.stringify({ type: 'input', data: cmd }));
-  else toast('终端未连接', 'err');
-}
+function termClear() { if (term) term.clear(); }
 function toggleTerm() { $('#term-bar').classList.toggle('collapsed'); }
 
 /* ---------- AI 设置(服务器/API Key/模型 + 每用户用量) ---------- */

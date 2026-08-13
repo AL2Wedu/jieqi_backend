@@ -47,7 +47,7 @@
 
 ### 管理后台(/admin)
 - **8 大板块**:仪表盘 / 用户列表 / 全局配置(`game_config` 热更新 + 环境变量只读打码)/ 作物管理(新增植物可自动建种子)/ 种植状态 / 道具管理 / 定价 / 节气设置
-- **底部 PowerShell 终端**:xterm.js + ConPTY,可启动/中断后端服务、执行任意命令
+- **底部日志监控**:只读实时流(server.out.log,等价 `Get-Content -Wait`),初始回放 200 行 + 增量推送、断线自动重连
 - **安全**:独立 admin JWT(2 小时过期)、`ADMIN_ENABLED` 总开关
 
 ### 工程基础
@@ -62,7 +62,7 @@
 | 节气卡道具 | 商店可购买 | `term_lock`(锁定节气)效果未实现,使用返回"功能开发中" |
 | 水壶/浇水 | 可设置为 100 | 水分**随时间衰减**机制未实现(不浇水不影响生长) |
 | 游戏时钟暂停 | 公式与后台均支持 `paused` | 未与玩法联动(如节气卡冻结时钟) |
-| 管理终端 | Windows 完整可用 | Linux 生产环境无 ConPTY,自动降级为不可用 |
+| 日志监控 | 全平台可用(只读文件流,无系统依赖) |
 | 多 worker 部署 | 单进程正常 | 节气广播为进程内任务,多 worker 会重复推送(需 Redis pub/sub) |
 
 ## 1.3 未实现 ❌(表已建 / 接口未做)
@@ -98,7 +98,7 @@
 | 校验 | Pydantic v2 |
 | 认证 | JWT(HS256):玩家 token + 管理员 token 双体系 |
 | 依赖管理 | uv(uv.lock 锁定) |
-| 管理后台终端 | xterm.js + pywinpty(ConPTY PowerShell) |
+| 管理后台日志监控 | xterm.js + 只读日志流 WS(无 PTY、无命令执行) |
 | 大模型(规划) | DeepSeek / 通义千问 / 智谱 + RAG |
 
 # 3. 设计文档
@@ -122,7 +122,7 @@ server/
 │   ├── schemas/          # Pydantic 请求模型
 │   ├── services/         # 业务逻辑(calendar/auth/player/farm/inventory/shop/admin)
 │   ├── api/              # 路由层(auth/player/calendar/farm/shop/debug/admin + WS)
-│   ├── ws/               # WebSocket:节气广播 + ConPTY 终端桥
+│   ├── ws/               # WebSocket:节气广播 + 管理日志流
 │   └── static/           # 管理后台单页 admin.html + 植物美术 SVG
 ├── data/                 # 种子数据(24 节气 / 6 作物 / 9 道具)
 ├── scripts/seed.py       # 幂等种子导入(启动自动执行)
@@ -153,7 +153,7 @@ powershell -ExecutionPolicy Bypass -File scripts\stop_server.ps1   # 停止(按 
 
 - 日志:`logs\server.out.log` / `logs\server.err.log`;PID 文件:`logs\server.pid`
 - 脚本自动清理 Hermes 注入的 `PYTHONPATH`(避免 import 串包),端口占用时提示先停
-- 管理后台终端"▶ 启动后端"按钮与独立实例**互斥**(同一端口),二选一
+- 管理后台**日志监控为只读流**,与独立实例互不干扰(服务由系统/脚本托管,后台只负责看日志)
 
 > 注:若在 Hermes 等带 `PYTHONPATH` 污染的环境运行,命令前加 `env -u PYTHONPATH`。
 
@@ -177,8 +177,8 @@ powershell -ExecutionPolicy Bypass -File scripts\stop_server.ps1   # 停止(按 
   - **道具管理**:增删改,effect JSON 定义效果
   - **定价**:作物售价与道具价格内联编辑
   - **节气设置**:24 节气时长、游戏时钟倍速/暂停/纪元重置
-  - **底部终端栏**:内嵌 PowerShell(xterm.js + ConPTY),可启动/中断后端服务、执行任意命令
-- 安全:`ADMIN_ENABLED=false` 整体关闭;admin token 2 小时过期;终端为最高权限,**生产环境禁止开放**
+  - **底部日志监控栏**:实时滚动 `server.out.log`(只读流,初始回放 200 行 + 增量推送,断线自动重连)
+- 安全:`ADMIN_ENABLED=false` 整体关闭;admin token 2 小时过期;日志流为**只读**,无任何命令执行能力,可放心部署
 
 # 7. 部署指南
 
@@ -309,7 +309,7 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # WebSocket(节气广播 / 管理终端)
+        # WebSocket(节气广播 / 管理日志监控)
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
@@ -332,7 +332,7 @@ server {
 - [ ] `ADMIN_ENABLED=false` 或管理后台仅内网/跳板机可达
 - [ ] `DEBUG_ENABLED=false`
 - [ ] 云安全组/防火墙只放行 80/443(及 SSH)
-- [ ] 管理终端是最高权限,公网**禁止**开放
+- [x] 日志监控为只读流,无命令执行面(已消除 RCE 风险)
 - [ ] 未成年人合规:AI 输出审核 + 留痕(见设计文档)
 
 ### 7.3.6 数据备份与恢复
@@ -362,4 +362,4 @@ gunzip -c /backup/jieqi_2026-08-14.sql.gz | psql -U jieqi -d jieqi
 
 - 开发默认账号:`admin / admin123`(仅本地开发,生产必须修改)
 - 测试库与开发库分离:测试用 `test.db`(conftest 自动重建),开发用 `dev.db`
-- Windows 开发注意:终端桥依赖 pywinpty(仅 Windows 提供 ConPTY);Linux 生产环境管理终端自动降级为不可用,不影响业务接口
+- Windows 开发注意:日志监控为只读文件流,无平台依赖;用 `scripts\run_server.ps1` 启动后端才会产生日志文件

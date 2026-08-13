@@ -22,7 +22,7 @@
 | 玩家 | `Authorization: Bearer <player_token>` | `POST /v1/auth/register` 或 `/login` | 7 天(可配) |
 | 管理员 | `Authorization: Bearer <admin_token>` | `POST /v1/admin/login` | 2 小时 |
 
-> WebSocket 无法带 Header:玩家 WS 无需鉴权(仅广播);管理终端 WS 用查询参数 `?token=<admin_token>`。
+> WebSocket 无法带 Header:玩家 WS 无需鉴权(仅广播);管理日志流 WS 用查询参数 `?token=<admin_token>`。
 
 ### 1.3 响应信封(所有 REST 接口统一)
 
@@ -150,7 +150,7 @@
 | # | 类型 | 路径 | 说明 |
 |---|---|---|---|
 | 37 | WS | `/v1/ws` | 节气事件广播(连上即推当前节气) |
-| 38 | WS | `/v1/admin/terminal?token=` | 管理终端(ConPTY PowerShell,👑) |
+| 38 | WS | `/v1/admin/logs?token=` | 后端日志监控(只读流,👑) |
 | 39 | GET | `/admin` | 管理后台页面(浏览器) |
 | 40 | GET | `/docs` | Swagger UI(OpenAPI) |
 | 41 | GET | `/static/*` | 静态资源(管理后台 JS / 植物美术 SVG) |
@@ -664,23 +664,19 @@
 - 客户端发文本 `ping` → 服务端回 `{"type":"pong"}`
 - 断线重连:重连后第一条就是当前节气,不会丢状态
 
-### 7.2 WS /v1/admin/terminal?token=<admin_token> — 管理终端
+### 7.2 WS /v1/admin/logs?token=<admin_token> — 后端日志监控(只读)
 
-**客户端 → 服务端**(JSON 文本):
+后端运行日志实时流,等价 `Get-Content server.out.log -Wait`。
 
-```json
-{ "type": "input", "data": "echo hello\r" }
-{ "type": "resize", "rows": 24, "cols": 110 }
-```
+- 连接即**回放最后 200 行**,之后**增量实时推送**
+- 服务端 → 客户端(JSON):
+  - `{"type":"log","data":"<日志行>"}` — 普通日志行
+  - `{"type":"error","data":"<提示>"}` — 日志文件不存在 / 文件轮转提示
+- 客户端 → 服务端:文本 `ping`(保活),服务端回 `{"type":"pong"}`
+- 日志源:`server/logs/server.out.log`(uvicorn 访问日志);文件被轮转(变小)时自动从头重读
+- 断开后客户端应自动重连(重连后重新回放最后 200 行)
 
-**服务端 → 客户端**:
-
-```json
-{ "type": "data", "data": "PS C:\\...> echo hello\r\nhello\r\n" }
-{ "type": "error", "data": "终端不可用:缺少 pywinpty 支持" }
-```
-
-> 该终端是**最高权限**(可启停后端、执行任意命令),仅限内网/开发,生产 `ADMIN_ENABLED=false`。
+> 该流为**只读**,不暴露任何命令执行能力(无 RCE 面),生产环境可放心开放;后端由系统服务托管常驻。
 
 ---
 

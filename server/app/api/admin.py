@@ -1,5 +1,6 @@
 import asyncio
 import json
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
@@ -21,7 +22,6 @@ from app.schemas import (
     AdminUserShopItemPayload,
 )
 from app.services import admin_service, ai_service
-from app.ws.terminal import bridge
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -311,41 +311,58 @@ def shop_user_reset(
     return ok(admin_service.reset_user_shop(db, player_id))
 
 
-@router.websocket("/terminal")
-async def terminal_ws(websocket: WebSocket, token: str = Query(default="")):
-    """管理终端:ConPTY PowerShell 桥。token 走查询参数(WS 无法带 Header)。"""
+@router.websocket("/logs")
+async def logs_ws(websocket: WebSocket, token: str = Query(default="")):
+    """后端运行日志实时流(等价 Get-Content -Wait):初始回放最后 200 行,之后增量推送。
+
+    安全:只读日志文件,不暴露任何命令执行能力;token 走查询参数(WS 无法带 Header)。
+    客户端 ping 保活;文件被轮转(变小)时自动从头重读。
+    """
     if not settings.admin_enabled or not is_admin_token(token):
         await websocket.close(code=4401)
         return
     await websocket.accept()
-    if not bridge.ensure_started():
-        await websocket.send_json({"type": "error", "data": "终端不可用:缺少 pywinpty 支持"})
-        await websocket.close()
-        return
+    log_path = Path(__file__).resolve().parent.parent.parent / "logs" / "server.out.log"
 
-    loop = asyncio.get_running_loop()
-    queue = bridge.subscribe(loop)
+    def tail_lines() -> list[str]:
+        if not log_path.exists():
+            return []
+        return log_path.read_text(encoding="utf-8", errors="replace").splitlines()
 
-    async def sender() -> None:
-        while True:
-            text = await queue.get()
-            await websocket.send_json({"type": "data", "data": text})
-
-    sender_task = asyncio.create_task(sender())
+    initial = tail_lines()
+    for line in initial[-200:]:
+        await websocket.send_json({"type": "log", "data": line})
+    if not initial:
+        await websocket.send_json(
+            {
+                "type": "error",
+                "data": "日志文件不存在(请用 scripts\\run_server.ps1 启动后端以启用日志)",
+            }
+        )
+    last_size = log_path.stat().st_size if log_path.exists() else 0
     try:
         while True:
-            raw = await websocket.receive_text()
             try:
-                msg = json.loads(raw)
-            except Exception:
-                msg = {"type": "input", "data": raw}
-            t = msg.get("type")
-            if t == "input":
-                bridge.write(str(msg.get("data", "")))
-            elif t == "resize":
-                bridge.resize(int(msg.get("rows", 24)), int(msg.get("cols", 110)))
+                msg = await asyncio.wait_for(websocket.receive_text(), timeout=1.0)
+                if msg == "ping":
+                    await websocket.send_json({"type": "pong"})
+            except asyncio.TimeoutError:
+                pass
+            except WebSocketDisconnect:
+                break
+            if not log_path.exists():
+                last_size = 0
+                continue
+            size = log_path.stat().st_size
+            if size < last_size:  # 日志轮转/清空
+                last_size = 0
+                await websocket.send_json({"type": "error", "data": "[日志文件已轮转,从头重读]"})
+            if size > last_size:
+                with open(log_path, encoding="utf-8", errors="replace") as f:
+                    f.seek(last_size)
+                    chunk = f.read()
+                for line in chunk.splitlines():
+                    await websocket.send_json({"type": "log", "data": line})
+                last_size = size
     except WebSocketDisconnect:
         pass
-    finally:
-        sender_task.cancel()
-        bridge.unsubscribe(queue)

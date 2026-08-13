@@ -222,3 +222,22 @@ def test_terms_and_clock(client):
         "/v1/admin/clock", json={"time_scale": 1.0, "paused": False, "reset_epoch": True}, headers=h
     ).json()
     assert r["code"] == 0 and r["data"]["paused"] is False
+
+
+def test_admin_logs_ws(client):
+    """日志监控流:有效 token 收到日志行或提示;无效 token 被拒绝(4401)。"""
+    import pytest
+    from starlette.websockets import WebSocketDisconnect
+
+    token, _ = _admin_login(client)
+
+    # 有效 token:收到初始回放(测试环境无日志文件 → 收到错误提示消息)
+    with client.websocket_connect(f"/v1/admin/logs?token={token}") as ws:
+        first = ws.receive_json()
+        assert first["type"] in ("log", "error")
+
+    # 无效 token:连接被拒
+    with pytest.raises(WebSocketDisconnect) as exc:
+        with client.websocket_connect("/v1/admin/logs?token=bad-token"):
+            pass
+    assert exc.value.code == 4401
