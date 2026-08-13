@@ -95,6 +95,7 @@
 | 25 | GET | `/v1/ai/models` | 🔐 | 上游可用模型列表(透传) |
 | 26 | GET | `/v1/ai/usage` | 🔐 | 我的 AI 用量(总量 + 按日) |
 | 27 | GET | `/v1/art/crops/{slug}/{name}.png?w=` | 🔓 | **美术下发**:按请求分辨率返回预渲染 PNG(见 §8.3) |
+| 28 | GET | `/v1/art/version` | 🔓 | **素材版本**(内容哈希):客户端判断是否需要更新本地缓存 |
 
 ### 2.2 调试接口(🧪 `DEBUG_ENABLED=true` 时可用,需 🔐)
 
@@ -731,6 +732,23 @@ GET /v1/art/crops/{slug}/{seed|1|2|3}.png?w=<目标像素>
 - slug 来源:作物 `art.seed` 路径中的目录名(如 `/static/assets/crops/rice/seed.svg` → `rice`)
 - 示例:Godot 端格子图 `?w=64`(缩略)/ 大图 `?w=256`;玩家视角按 `stage-1` 取 `stages` 对应素材
 - **取图闭环**:`GET /v1/farm/state` → 每格 `crop.art`(取 slug)→ `GET /v1/art/crops/{slug}/{seed|stage}.png?w=<px>`(详见 §3.7)
+
+**素材版本更新协议(客户端缓存刷新)**:
+
+```
+GET /v1/art/version  →  data: {
+  "version": "a1b2c3d4e5f6",          // 全服素材版本(全部文件内容哈希)
+  "crops": { "rice": "9f8e7d...", ... },  // 逐作物版本
+  "sizes": [32, 64, 128, 256],
+  "updated_at": "2026-08-13T..."
+}
+```
+
+- **客户端本地缓存素材时**:登录后 / 每次节气切换(WS 广播)时调用一次,与本地记录的版本对比:
+  - `version` 不同 → 全量刷新本地素材缓存
+  - 仅某作物 `crops[slug]` 不同 → 只重新下载该作物的图片
+- 版本 = 素材文件内容哈希(管理后台新增/修改作物、替换美术文件后自动变化,无需重启)
+- 服务端带 mtime 缓存,轮询开销极小
 
 ---
 
