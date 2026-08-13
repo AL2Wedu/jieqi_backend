@@ -7,7 +7,7 @@ from app.core.security import create_token, hash_password, verify_password
 from app.models import CoinTransaction, Farm, Player, Plot, User
 
 START_COINS = 200
-START_PLOTS = 6
+START_PLOTS = 20  # 田地格子:横 4 × 竖 5
 
 
 def player_summary(player: Player, farm: Farm | None, name: str) -> dict:

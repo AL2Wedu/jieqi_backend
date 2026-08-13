@@ -19,6 +19,10 @@ from app.services.calendar_service import current_calendar, get_current_term
 
 _SEASON_TERMS = {1: (1, 6), 2: (7, 12), 3: (13, 18), 4: (19, 24)}  # 春/夏/秋/冬
 
+FARM_COLS = 4  # 田地格子:横 4
+FARM_ROWS = 5  # 竖 5
+# 格子编号规则:idx 1-20,按行优先 —— idx = (row-1)*4 + col (row∈1..5, col∈1..4)
+
 
 def _get_farm(db: Session, player) -> Farm:
     farm = db.query(Farm).filter(Farm.owner_id == player.id).first()
@@ -99,6 +103,7 @@ def get_farm_state(db: Session, player) -> dict:
             "farm_id": str(farm.id),
             "name": farm.name,
             "plot_count": farm.plot_count,
+            "grid": {"cols": FARM_COLS, "rows": FARM_ROWS},  # 4×5,idx 行优先
         },
         "current_term": current_calendar(db),
         "plots": plot_list,

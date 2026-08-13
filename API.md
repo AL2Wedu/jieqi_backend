@@ -66,7 +66,7 @@
 | 4 | GET | `/v1/player/inventory` | 🔐 | 背包列表(含数量 0 的道具行) |
 | 5 | POST | `/v1/player/inventory/{item_id}/use` | 🔐 | 使用道具(水壶/肥料,需目标地块) |
 | 6 | GET | `/v1/calendar/current` | 🔓 | 当前节气 + 轮次 + 剩余秒 |
-| 7 | GET | `/v1/farm/state` | 🔐 | 农场全量状态(6 地块 + 每格作物状态) |
+| 7 | GET | `/v1/farm/state` | 🔐 | 农场全量状态(4×5=20 地块 + 每格作物状态) |
 | 8 | POST | `/v1/farm/plots/{plot_id}/sow` | 🔐 | 播种(校验节气窗 + 消耗种子) |
 | 9 | POST | `/v1/farm/plots/{plot_id}/water` | 🔐 | 浇水(water_level → 100) |
 | 10 | POST | `/v1/farm/plots/{plot_id}/harvest` | 🔐 | 收获结算(产量×单价 → 金币) |
@@ -148,12 +148,12 @@
     "head_title_id": null,
     "unlocked_term_index": 1,
     "farm_id": "1a2b...",
-    "plot_count": 6
+    "plot_count": 20
   }
 }
 ```
 
-> 注册副作用:自动创建玩家(初始金币 **200**)、农场(6 地块)、`coin_transactions` 记 `register` 账。
+> 注册副作用:自动创建玩家(初始金币 **200**)、农场(20 地块,4 列 × 5 行)、`coin_transactions` 记 `register` 账。
 
 **错误**:`20001 USER_EXISTS`(用户名已存在)、`10001 INVALID_PARAMS`(参数不合法)
 
@@ -221,7 +221,8 @@
 
 ```json
 {
-  "farm": { "farm_id": "uuid", "name": "demo01的农场", "plot_count": 6 },
+  "farm": { "farm_id": "uuid", "name": "demo01的农场", "plot_count": 20,
+            "grid": { "cols": 4, "rows": 5 } },
   "current_term": { "term_index": 6, "name": "谷雨", "cycle": 0, "remaining_sec": 173 },
   "plots": [
     {

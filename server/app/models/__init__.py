@@ -134,7 +134,7 @@ class Farm(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
     owner_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), unique=True)
     name: Mapped[str] = mapped_column(String(32), default="我的农场")
-    plot_count: Mapped[int] = mapped_column(SmallInteger, default=6)
+    plot_count: Mapped[int] = mapped_column(SmallInteger, default=20)  # 4 列 × 5 行
     theme: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 

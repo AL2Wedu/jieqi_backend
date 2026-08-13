@@ -54,7 +54,7 @@ def test_full_flow(client):
     r = client.get("/v1/farm/state", headers=h).json()
     assert r["code"] == 0
     plots = r["data"]["plots"]
-    assert len(plots) == 6
+    assert len(plots) == 20  # 4 列 × 5 行
     plot_id = plots[0]["plot_id"]
 
     # 商店
