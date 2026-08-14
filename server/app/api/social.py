@@ -56,3 +56,65 @@ def remove(
     db: Session = Depends(get_db),
 ):
     return ok(social_service.remove_friend(db, player, player_id))
+
+
+@router.get("/search")
+def search(
+    q: str,
+    limit: int = 20,
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """按名字模糊搜索玩家(排除自己),公开资料列表。"""
+    return ok(social_service.search_players(db, player, q, limit))
+
+
+@router.get("/players/{player_id}")
+def player_profile(
+    player_id: str,
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """UUID 查询:任意玩家公开资料 + 与我方关系(none/pending_out/pending_in/friends)。"""
+    return ok(social_service.get_player_profile(db, player, player_id))
+
+
+@router.get("/friends/{player_id}")
+def friend_profile(
+    player_id: str,
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """好友资料卡(须已是好友):公开资料 + friends_since。"""
+    return ok(social_service.get_friend_profile(db, player, player_id))
+
+
+@router.get("/friends/{player_id}/farm")
+def friend_farm(
+    player_id: str,
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """好友农场参观(只读快照,无副作用)。"""
+    return ok(social_service.get_friend_farm(db, player, player_id))
+
+
+@router.post("/friends/{player_id}/water")
+def water_friend(
+    player_id: str,
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """互助浇水(预留接口,功能开发中)。"""
+    return ok(social_service.water_friend(db, player, player_id))
+
+
+@router.post("/friends/{player_id}/plots/{plot_idx}/steal")
+def steal_crop(
+    player_id: str,
+    plot_idx: int,
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """偷菜(预留接口,功能开发中)。"""
+    return ok(social_service.steal_from_friend(db, player, player_id, plot_idx))

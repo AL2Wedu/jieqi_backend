@@ -131,6 +131,12 @@
 | 33 | POST | `/v1/shop/guest/{session_id}/accept` | 🔐 | 接受客人当前报价 → 成交结算 |
 | 34 | POST | `/v1/shop/guest/{session_id}/cancel` | 🔐 | 赶客放弃,不成交 |
 | 35 | GET | `/v1/shop/guest/{session_id}` | 🔐 | 会话快照(含消息历史,断线重进用) |
+| 36 | GET | `/v1/social/search?q=` | 🔐 | 按名字模糊搜索玩家(排除自己,公开资料) |
+| 37 | GET | `/v1/social/players/{player_id}` | 🔐 | UUID 查询:任意玩家公开资料 + 关系状态 |
+| 38 | GET | `/v1/social/friends/{player_id}` | 🔐 | 好友资料卡(须已是好友,friends_since) |
+| 39 | GET | `/v1/social/friends/{player_id}/farm` | 🔐 | 好友农场参观(只读快照,无副作用) |
+| 40 | POST | `/v1/social/friends/{player_id}/water` | 🔐 | 互助浇水(预留接口,功能开发中) |
+| 41 | POST | `/v1/social/friends/{player_id}/plots/{plot_idx}/steal` | 🔐 | 偷菜(预留接口,功能开发中) |
 
 ### 3.3 美术素材(3)
 
@@ -529,6 +535,49 @@ bargaining --cancel--> cancelled
 **错误:** `29001`-`29007`(见错误码表)· `22007 NOT_ENOUGH_CROP`(收成仓无货)· `21005 CROP_NOT_FOUND`
 
 **客人模板:** `server/data/guests.json`(3 个:王奶奶 0.6-0.9 / 陈大厨 0.95-1.3 / 小美 0.75-1.05,心理价位 = 市场价 × 随机系数,会话创建时定死)。管理后台可调 `guest.*` 配置与开关。
+
+### 5.18 社交查询与好友互动(🔐)
+
+**名字搜索(找人加好友的入口):**
+
+```
+GET /v1/social/search?q=<关键词>&limit=<默认20,≤50>
+→ { "items": [ { "player_id", "name", "level", "unlocked_term_index", "farm_name", "last_active_at" } ] }
+```
+
+- `q` 必填,模糊匹配 `User.name`(排除自己),按最近活跃排序;空词 → `10001`
+
+**UUID 查询(任意玩家公开资料 + 关系):**
+
+```
+GET /v1/social/players/{player_id}
+→ { "player_id", "name", "level", "unlocked_term_index", "farm_name", "last_active_at", "relation" }
+```
+
+- `relation`:`none`(无关系)/ `pending_out`(我发过申请)/ `pending_in`(对方申请我)/ `friends` / `self`
+- 不存在 → `20002 USER_NOT_FOUND`
+
+**好友资料卡(须已是好友):** `GET /v1/social/friends/{player_id}` → 同上 + `friends_since`(成为好友时间);非好友 → `27005`
+
+**好友农场参观(只读,无副作用):**
+
+```
+GET /v1/social/friends/{player_id}/farm
+→ { "farm": { "farm_id", "name", "plot_count", "owner": {...公开资料} },
+    "plots": [ { "plot_id", "idx", "soil_quality", "locked", "weeded", "crop": {...同 farm/state 的 crop 视图} } ] }
+```
+
+- 只读快照:**不触发**枯萎/杂草/虫害等任何状态变更(与玩家自己 `GET /v1/farm/state` 的副作用区分)
+- 非好友 → `27005`
+
+**预留互动接口(契约已定,功能开发中):**
+
+| 方法 | 路径 | 未来契约(开发中) |
+|---|---|---|
+| POST | `/v1/social/friends/{player_id}/water` | 帮好友浇水 → `{friend_player_id, watered_plot_count, cooldown_seconds}`(需冷却限制,防刷) |
+| POST | `/v1/social/friends/{player_id}/plots/{plot_idx}/steal` | 偷好友成熟作物 → `{friend_player_id, plot_idx, stolen_crop, stolen_quantity, daily_remaining}`(需每日上限) |
+
+当前返回:`{ "feature": "water|steal", "enabled": false, "message": "开发中,敬请期待" }`(code=0,前端可先渲染禁用态按钮);已校验好友关系(非好友 → `27005`)。
 
 ---
 

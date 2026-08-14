@@ -6,7 +6,7 @@ from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
-from app.models import Friendship, Player, User
+from app.models import Farm, Friendship, Player, User
 
 
 def _utcnow():
@@ -140,3 +140,175 @@ def remove_friend(db: Session, player: Player, other_id: str) -> dict:
     db.delete(fs)
     db.commit()
     return {"removed_player_id": str(other_uuid)}
+
+
+# ---------- 查询与资料卡 ----------
+
+def _relation(db: Session, me: Player, other_id: uuid.UUID) -> str:
+    """我与目标的关系:none / pending_out / pending_in / friends。"""
+    if other_id == me.id:
+        return "self"
+    a, b = _pair(me.id, other_id)
+    fs = (
+        db.query(Friendship)
+        .filter(Friendship.player_a == a, Friendship.player_b == b)
+        .first()
+    )
+    if not fs:
+        return "none"
+    if fs.status == 1:
+        return "friends"
+    if fs.status == 0:
+        return "pending_out" if fs.requester == me.id else "pending_in"
+    return "none"  # 已拒绝
+
+
+def _profile_view(db: Session, target: Player) -> dict:
+    u = db.query(User).filter(User.id == target.user_id).first()
+    farm = db.query(Farm).filter(Farm.owner_id == target.id).first()
+    return {
+        "player_id": str(target.id),
+        "name": u.name if u else "?",
+        "level": target.level,
+        "unlocked_term_index": target.unlocked_term_index,
+        "farm_name": farm.name if farm else None,
+        "last_active_at": (
+            target.last_active_at.isoformat(timespec="seconds")
+            if target.last_active_at
+            else None
+        ),
+    }
+
+
+def _get_player(db: Session, player_id: str) -> Player:
+    try:
+        pid = uuid.UUID(player_id)
+    except ValueError:
+        raise AppError("USER_NOT_FOUND", "用户不存在", code=20002)
+    p = db.query(Player).filter(Player.id == pid).first()
+    if not p:
+        raise AppError("USER_NOT_FOUND", "用户不存在", code=20002)
+    return p
+
+
+def search_players(db: Session, player: Player, q: str, limit: int = 20) -> dict:
+    """按名字模糊搜索玩家(排除自己),返回公开资料。"""
+    q = (q or "").strip()
+    if not q:
+        raise AppError("INVALID_PARAMS", "搜索词不能为空", code=10001)
+    like = f"%{q}%"
+    rows = (
+        db.query(Player, User)
+        .join(User, User.id == Player.user_id)
+        .filter(User.name.like(like), Player.id != player.id)
+        .order_by(Player.last_active_at.desc())
+        .limit(min(limit, 50))
+        .all()
+    )
+    return {"items": [_profile_view(db, p) for p, _ in rows]}
+
+
+def get_player_profile(db: Session, player: Player, target_id: str) -> dict:
+    """UUID 查询:任意玩家的公开资料 + 与我方关系。"""
+    target = _get_player(db, target_id)
+    view = _profile_view(db, target)
+    view["relation"] = _relation(db, player, target.id)
+    return view
+
+
+def get_friend_profile(db: Session, player: Player, friend_id: str) -> dict:
+    """好友资料卡(须已是好友):公开资料 + 好友关系时间。"""
+    target = _get_player(db, friend_id)
+    a, b = _pair(player.id, target.id)
+    fs = (
+        db.query(Friendship)
+        .filter(Friendship.player_a == a, Friendship.player_b == b, Friendship.status == 1)
+        .first()
+    )
+    if not fs:
+        raise AppError("FRIEND_NOT_FOUND", "对方不是你的好友", code=27005)
+    view = _profile_view(db, target)
+    view["relation"] = "friends"
+    view["friends_since"] = fs.created_at.isoformat(timespec="seconds")
+    return view
+
+
+def get_friend_farm(db: Session, player: Player, friend_id: str) -> dict:
+    """好友农场参观(只读快照,无任何副作用:不触发枯萎/杂草/虫害判定)。"""
+    from app.models import Crop, CropInstance, Plot
+    from app.services import world_service
+    from app.services.farm_service import crop_view
+
+    target = _get_player(db, friend_id)
+    a, b = _pair(player.id, target.id)
+    fs = (
+        db.query(Friendship)
+        .filter(Friendship.player_a == a, Friendship.player_b == b, Friendship.status == 1)
+        .first()
+    )
+    if not fs:
+        raise AppError("FRIEND_NOT_FOUND", "对方不是你的好友", code=27005)
+    farm = db.query(Farm).filter(Farm.owner_id == target.id).first()
+    if not farm:
+        return {"farm": None, "plots": []}
+    plots = db.query(Plot).filter(Plot.farm_id == farm.id).order_by(Plot.idx).all()
+    active = {
+        ci.plot_id: ci
+        for ci in db.query(CropInstance)
+        .filter(
+            CropInstance.plot_id.in_([p.id for p in plots]),
+            CropInstance.harvested_at.is_(None),
+            CropInstance.destroyed_at.is_(None),
+        )
+        .all()
+    }
+    crops = {c.id: c for c in db.query(Crop).all()}
+    return {
+        "farm": {
+            "farm_id": str(farm.id),
+            "name": farm.name,
+            "plot_count": farm.plot_count,
+            "owner": _profile_view(db, target),
+        },
+        "plots": [
+            {
+                "plot_id": str(p.id),
+                "idx": p.idx,
+                "soil_quality": p.soil_quality,
+                "locked": p.locked,
+                "weeded": bool(p.weeded),
+                "crop": crop_view(active[p.id], crops.get(active[p.id].crop_id))
+                if p.id in active
+                else None,
+            }
+            for p in plots
+        ],
+    }
+
+
+# ---------- 预留互动契约(接口已定,功能待上线) ----------
+
+def water_friend(db: Session, player: Player, friend_id: str) -> dict:
+    """互助浇水(预留):接口契约已定,功能开发中。
+    未来契约:POST /v1/social/friends/{player_id}/water
+    → {friend_player_id, watered_plot_count, cooldown_seconds}
+    """
+    get_friend_profile(db, player, friend_id)  # 校验是好友
+    return {
+        "feature": "water",
+        "enabled": False,
+        "message": "互助浇水开发中,敬请期待",
+    }
+
+
+def steal_from_friend(db: Session, player: Player, friend_id: str, plot_idx: int) -> dict:
+    """偷菜(预留):接口契约已定,功能开发中。
+    未来契约:POST /v1/social/friends/{player_id}/plots/{plot_idx}/steal
+    → {friend_player_id, plot_idx, stolen_crop, stolen_quantity, daily_remaining}
+    """
+    get_friend_profile(db, player, friend_id)  # 校验是好友
+    return {
+        "feature": "steal",
+        "enabled": False,
+        "message": "偷菜玩法开发中,敬请期待",
+    }

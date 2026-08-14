@@ -4,6 +4,7 @@ AI 部分使用进程内 stub 上游(OpenAI 兼容),验证转发 + 用量记录 
 """
 import threading
 import time
+import uuid
 
 import pytest
 import uvicorn
@@ -219,3 +220,82 @@ def test_ai_relay(client, ai_stub):
     r = client.get("/v1/quests", headers=h).json()
     q = {x["code"]: x for x in r["data"]["items"]}["q_ai_3"]
     assert q["progress"]["current"] == 1
+
+
+def _pid(client, h):
+    return client.get("/v1/player/me", headers=h).json()["data"]["player_id"]
+
+
+def test_social_search_and_uuid_query(client):
+    """名字搜索 + UUID 查询(公开资料 + 关系状态)。"""
+    hA = _reg(client, "srch_a")
+    hB = _reg(client, "srch_b")
+    pidB = _pid(client, hB)
+    # 搜索:前缀/模糊匹配,排除自己
+    r = client.get("/v1/social/search?q=srch", headers=hA).json()
+    assert r["code"] == 0
+    names = {i["name"] for i in r["data"]["items"]}
+    assert "srch_b" in names and "srch_a" not in names  # 排除自己
+    hit = next(i for i in r["data"]["items"] if i["name"] == "srch_b")
+    assert hit["player_id"] == pidB and hit["level"] >= 1
+    # 空搜索词 → 400
+    assert client.get("/v1/social/search?q=", headers=hA).json()["code"] == 10001
+    # UUID 查询:未加好友 → relation none
+    r = client.get(f"/v1/social/players/{pidB}", headers=hA).json()
+    assert r["code"] == 0
+    assert r["data"]["relation"] == "none"
+    assert r["data"]["name"] == "srch_b" and r["data"]["farm_name"]
+    # 发申请后 → pending_out(从 A 看)
+    client.post("/v1/social/requests", json={"player_id": pidB}, headers=hA)
+    r = client.get(f"/v1/social/players/{pidB}", headers=hA).json()
+    assert r["data"]["relation"] == "pending_out"
+    # 从 B 看 → pending_in
+    r = client.get(f"/v1/social/players/{_pid(client, hA)}", headers=hB).json()
+    assert r["data"]["relation"] == "pending_in"
+    # 接受后 → friends
+    client.post(f"/v1/social/requests/{_pid(client, hA)}/accept", headers=hB)
+    r = client.get(f"/v1/social/players/{pidB}", headers=hA).json()
+    assert r["data"]["relation"] == "friends"
+    # 不存在的 UUID → 20002
+    assert client.get(f"/v1/social/players/{uuid.uuid4()}", headers=hA).json()["code"] == 20002
+
+
+def test_social_friend_profile_and_farm(client):
+    """好友资料卡 + 好友农场参观(只读)。"""
+    hA = _reg(client, "prof_a")
+    hB = _reg(client, "prof_b")
+    pidA, pidB = _pid(client, hA), _pid(client, hB)
+    # 非好友访问资料卡/农场 → 27005
+    assert client.get(f"/v1/social/friends/{pidB}", headers=hA).json()["code"] == 27005
+    assert client.get(f"/v1/social/friends/{pidB}/farm", headers=hA).json()["code"] == 27005
+    # 成为好友
+    client.post("/v1/social/requests", json={"player_id": pidB}, headers=hA)
+    client.post(f"/v1/social/requests/{pidA}/accept", headers=hB)
+    # 资料卡
+    r = client.get(f"/v1/social/friends/{pidB}", headers=hA).json()
+    assert r["code"] == 0 and r["data"]["relation"] == "friends"
+    assert r["data"]["friends_since"]
+    # B 种一株作物后,A 参观能看到(只读)
+    _sow_and_harvest_one(client, hB)  # 收获后地块空 —— 用 _sow 不收获
+    r = client.get(f"/v1/social/friends/{pidB}/farm", headers=hA).json()
+    assert r["code"] == 0
+    assert r["data"]["farm"]["name"] and r["data"]["farm"]["owner"]["name"] == "prof_b"
+    assert len(r["data"]["plots"]) == 20
+    # 参观不触发任何状态变更(无 weed_events/wither 副作用字段,纯只读)
+
+
+def test_social_water_and_steal_scaffold(client):
+    """预留互动契约:接口已定,功能未上线(enabled=false)。"""
+    hA = _reg(client, "scaf_a")
+    hB = _reg(client, "scaf_b")
+    pidA, pidB = _pid(client, hA), _pid(client, hB)
+    client.post("/v1/social/requests", json={"player_id": pidB}, headers=hA)
+    client.post(f"/v1/social/requests/{pidA}/accept", headers=hB)
+    # 浇水(预留)
+    r = client.post(f"/v1/social/friends/{pidB}/water", headers=hA).json()
+    assert r["code"] == 0 and r["data"]["feature"] == "water"
+    assert r["data"]["enabled"] is False
+    # 偷菜(预留)
+    r = client.post(f"/v1/social/friends/{pidB}/plots/3/steal", headers=hA).json()
+    assert r["code"] == 0 and r["data"]["feature"] == "steal"
+    assert r["data"]["enabled"] is False
