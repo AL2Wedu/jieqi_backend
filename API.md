@@ -402,11 +402,11 @@
 
 **路径参数:** `plot_id`。
 
-**响应(data):** `plot_id` / `crop_id` / `crop_name` / `yield`(实际产量,已含肥力加成/减产)/ `storage_after`(收成仓该作物总量)/ `note`(提示文案)
+**响应(data):** `plot_id` / `crop_id` / `crop_name` / `yield`(实际产量,已含肥力加成/减产)/ `storage_after`(收成仓该作物总量)/ `exp_gained`(收获经验 = 产量×2)/ `level`(收获后等级)/ `leveled_up`(本次是否升级)/ `note`(提示文案)
 
 **错误:** `21001 PLOT_NOT_FOUND` · `21004 PLOT_EMPTY` · `23001 CROP_NOT_MATURE`(未成熟,HTTP 400)
 
-**注意事项:** ① 产量公式:`yield_base × (1 + 0.1×(肥力-1))`,土壤肥力 < `fertility_need` 再乘 `(soil/need)` 减产;② 收成**入收成仓**(不直接给金币),出售走 `POST /v1/shop/crops/{id}/sell`;③ 收获后地块可再种(历史记录保留)。
+**注意事项:** ① 产量公式:`yield_base × (1 + 0.1×(肥力-1))`,土壤肥力 < `fertility_need` 再乘 `(soil/need)` 减产;② 收成**入收成仓**(不直接给金币),出售走 `POST /v1/shop/crops/{id}/sell`;③ **每株收成 +2 经验**,累计 100 经验自动升 1 级(`exp//100+1`,只升不降),客户端可用 `leveled_up` 弹升级提示;④ 收获后地块可再种(历史记录保留)。
 
 ### 5.11 POST /v1/farm/plots/{plot_id}/clear — 铲除(🔐)
 

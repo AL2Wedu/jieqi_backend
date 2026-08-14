@@ -102,6 +102,29 @@ def evaluate(db: Session, player: Player, condition: dict) -> tuple[int, int]:
     return cur, target
 
 
+EXP_PER_LEVEL = 100  # 每 100 经验升 1 级(level = exp // 100 + 1)
+
+
+def apply_exp(db: Session, player: Player, exp: int) -> dict:
+    """给玩家加经验并自动升级(level = exp//100 + 1,只升不降)。
+
+    返回 {"exp_gained", "level_before", "level_after"}。
+    """
+    exp = int(exp)
+    if exp <= 0:
+        return {"exp_gained": 0, "level_before": player.level, "level_after": player.level}
+    level_before = player.level
+    player.exp += exp
+    new_level = max(1, player.exp // EXP_PER_LEVEL + 1)
+    if new_level > player.level:
+        player.level = new_level
+    return {
+        "exp_gained": exp,
+        "level_before": level_before,
+        "level_after": player.level,
+    }
+
+
 def grant_reward(db: Session, player: Player, reward: dict | None, reason: str) -> dict:
     """发放奖励(金币/经验/道具),全部走账本。返回奖励明细。"""
     reward = reward or {}
@@ -115,7 +138,9 @@ def grant_reward(db: Session, player: Player, reward: dict | None, reason: str) 
             CoinTransaction(player_id=player.id, amount=coins, reason=reason)
         )
     if exp:
-        player.exp += exp
+        level_info = apply_exp(db, player, exp)
+        granted["exp"] = level_info["exp_gained"]
+        granted["level"] = player.level
     for it in items:
         code = it.get("code")
         qty = int(it.get("quantity", 1))

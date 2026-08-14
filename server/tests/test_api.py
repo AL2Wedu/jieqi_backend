@@ -135,3 +135,55 @@ def test_full_flow(client):
     # 未登录访问受保护接口 → 401
     r = client.get("/v1/farm/state")
     assert r.status_code == 401
+
+
+def test_harvest_exp_and_levelup(client):
+    """收获给经验(每株 +2);累计经验每 100 升 1 级(exp//100+1,只升不降)。"""
+    r = client.post("/v1/auth/register", json={"name": "exp_user", "password": "pass123"}).json()
+    assert r["code"] == 0
+    token = r["data"]["token"]
+    h = _auth(token)
+
+    # 推进节气到水稻宜种窗(4-8)
+    for _ in range(30):
+        cal = client.get("/v1/calendar/current", headers=h).json()["data"]
+        if 4 <= cal["term_index"] <= 8:
+            break
+        client.post("/v1/debug/term/advance", headers=h)
+
+    # 买种子 + 播种 + 催熟 + 收获
+    items = {i["code"]: i for i in client.get("/v1/shop/items", headers=h).json()["data"]["items"]}
+    seed = items["seed_shuidao"]
+    client.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=h)
+    state = client.get("/v1/farm/state", headers=h).json()["data"]
+    pid = state["plots"][0]["plot_id"]
+    client.post(f"/v1/farm/plots/{pid}/sow", json={"crop_id": seed["effect"]["crop_id"]}, headers=h)
+    client.post("/v1/debug/grow", json={"plot_id": pid}, headers=h)
+    hv = client.post(f"/v1/farm/plots/{pid}/harvest", headers=h).json()
+    assert hv["code"] == 0, hv
+    # 水稻肥力 1 → 6 株 → +12 经验;初始 Lv.1 不升级
+    assert hv["data"]["exp_gained"] == hv["data"]["yield"] * 2 == 12
+    assert hv["data"]["level"] == 1 and hv["data"]["leveled_up"] is False
+    me = client.get("/v1/player/me", headers=h).json()["data"]
+    assert me["exp"] == 12 and me["level"] == 1
+
+    # 经验垫到 95(管理后台),再收获 +12 → 107 → Lv.2
+    adm = client.post("/v1/admin/login", json={"username": "admin", "password": "admin123"}).json()
+    ah = _auth(adm["data"]["token"])
+    users = client.get("/v1/admin/users?page_size=50", headers=ah).json()["data"]["items"]
+    uid = next(u["user_id"] for u in users if u["name"] == "exp_user")
+    r = client.patch(f"/v1/admin/users/{uid}/assets", json={"exp": 95}, headers=ah).json()
+    assert r["code"] == 0 and r["data"]["exp"] == 95
+
+    # 第二块地再种一株(种子库存还有 0?—— 重新买)
+    client.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=h)
+    state = client.get("/v1/farm/state", headers=h).json()["data"]
+    pid2 = state["plots"][1]["plot_id"]
+    client.post(f"/v1/farm/plots/{pid2}/sow", json={"crop_id": seed["effect"]["crop_id"]}, headers=h)
+    client.post("/v1/debug/grow", json={"plot_id": pid2}, headers=h)
+    hv = client.post(f"/v1/farm/plots/{pid2}/harvest", headers=h).json()
+    assert hv["code"] == 0, hv
+    assert hv["data"]["exp_gained"] == 12
+    assert hv["data"]["level"] == 2 and hv["data"]["leveled_up"] is True  # 95+12=107 → Lv.2
+    me = client.get("/v1/player/me", headers=h).json()["data"]
+    assert me["exp"] == 107 and me["level"] == 2

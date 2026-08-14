@@ -375,12 +375,20 @@ def harvest(db: Session, player, plot_id: str) -> dict:
             )
         )
     db.commit()
+    # 收获给经验(每株 +2):核心循环正反馈,附带自动升级
+    from app.services.goal_service import apply_exp
+
+    exp_info = apply_exp(db, player, yield_actual * 2)
+    db.commit()
     return {
         "plot_id": plot_id,
         "crop_id": str(crop.id),
         "crop_name": crop.name,
         "yield": yield_actual,
         "storage_after": (st.quantity if st else yield_actual),
+        "exp_gained": exp_info["exp_gained"],
+        "level": exp_info["level_after"],
+        "leveled_up": exp_info["level_after"] > exp_info["level_before"],
         "note": "已入收成仓,可在商店按当前季节价出售",
     }
 
