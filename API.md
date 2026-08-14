@@ -819,6 +819,107 @@ GET /v1/art/crops/{slug}/{crop.stage}.png?w=128
 - 玩家不在线时推送静默丢弃,客户端下次登录/轮询自然收敛
 - 管理端其他资源编辑(背包/收成仓/地块作物)按同一模式推送,事件类型另行约定
 
+### 7.4 客户端接入指南(WS 资源同步 — Godot 可直接照抄)
+
+**完整时序**:
+
+```
+1. 登录:POST /v1/auth/login → 拿到 player_token(JWT)
+2. 连接:ws://<host>/v1/ws?token=<player_token>(WS 无法带 Header,鉴权走查询参数)
+3. 首帧:连接建立后服务端立即推一条 solar_term_change(当前节气)—— 用它初始化节气 UI
+4. 保活:客户端每 30 秒发文本 "ping",服务端回 {"type":"pong"}(也刷新在线判定)
+5. 事件:服务端随时推 {type, payload, ts} —— 按下表分发处理
+6. 资源权威:收到 resources_changed 后**必须重新 GET /v1/player/me**(事件只是"通知",值以接口为准)
+7. 断线:自动重连(见下方策略);重连成功后第一条就是当前节气,不会丢状态
+```
+
+**事件分发处理表**(收到后做什么):
+
+| type | 客户端处理 |
+|---|---|
+| `solar_term_change` | 更新节气/剩余秒 UI;如游戏逻辑依赖节气(宜种提示),刷新商店与农场视图 |
+| `resources_changed` | 调 `GET /v1/player/me` 刷新金币/等级/经验/解锁节气 → 更新 HUD 与各界面 |
+| `pest_big` | 弹音游界面;结束后 `POST /v1/farm/pest/{pest_id}/result` 提交成绩 |
+| `pest_small` | 目标地块标红 + 倒计时(`ready_at`);驱赶 `POST /v1/farm/pest/{pest_id}/drive-away` |
+| `pest_destroyed` | 对应地块作物已消失 → 刷新 `GET /v1/farm/state` |
+| `crop_withered` | 对应地块作物已枯萎 → 刷新 `GET /v1/farm/state` + 弹提示 |
+| 其他 | 忽略(向前兼容) |
+
+**GDScript 示例**(Godot 4,`WebSocketPeer`):
+
+```gdscript
+# ws_client.gd —— 挂到常驻节点,负责连接/心跳/事件分发
+extends Node
+
+const HOST := "ws://127.0.0.1:8000/v1/ws"
+var _ws := WebSocketPeer.new()
+var _token := ""
+var _connected := false
+var _ping_timer := 0.0
+const PING_INTERVAL := 30.0
+
+signal resources_changed   # 资源变更(金币/等级/经验)
+signal solar_term_changed(payload: Dictionary)
+signal pest_event(type: String, payload: Dictionary)
+
+func connect_ws(token: String) -> void:
+    _token = token
+    _ws.connect_to_url(HOST + "?token=" + token)  # 鉴权走查询参数
+
+func _process(delta: float) -> void:
+    _ws.poll()
+    if _ws.get_ready_state() == WebSocketPeer.STATE_OPEN:
+        if not _connected:
+            _connected = true
+            print("WS 已连接")
+        # 心跳:每 30s 发 ping
+        _ping_timer += delta
+        if _ping_timer >= PING_INTERVAL:
+            _ping_timer = 0.0
+            _ws.send_text("ping")
+        # 收消息
+        while _ws.get_available_packet_count() > 0:
+            _on_message(_ws.get_packet().get_string_from_utf8())
+    elif _ws.get_ready_state() == WebSocketPeer.STATE_CLOSED and _connected:
+        _connected = false
+        print("WS 断开,3 秒后重连")
+        get_tree().create_timer(3.0).timeout.connect(func(): connect_ws(_token))
+
+func _on_message(raw: String) -> void:
+    var msg: Dictionary = JSON.parse_string(raw)
+    match msg.get("type"):
+        "pong":
+            pass
+        "solar_term_change":
+            solar_term_changed.emit(msg["payload"])
+        "resources_changed":
+            # 资源权威变更:值以 /v1/player/me 为准,立即重新拉取
+            _refetch_player()
+            resources_changed.emit()
+        "pest_big", "pest_small", "pest_destroyed", "crop_withered":
+            pest_event.emit(msg["type"], msg["payload"])
+        _:
+            pass  # 未知事件忽略(向前兼容)
+
+func _refetch_player() -> void:
+    # 示例:HTTP 拉取后用返回值更新 HUD
+    var http := HTTPRequest.new()
+    add_child(http)
+    http.request("http://127.0.0.1:8000/v1/player/me",
+        ["Authorization: Bearer " + _token])
+    http.request_completed.connect(func(result, code, headers, body):
+        var data: Dictionary = JSON.parse_string(body.get_string_from_utf8())["data"]
+        # data.coins / data.level / data.exp / data.unlocked_term_index
+        # → 更新金币 HUD、等级条、商店解锁状态等
+        http.queue_free())
+```
+
+**重连与异常处理**:
+
+- 服务端关闭码 `4401` = token 无效/过期 → 停止重连,回登录页重新登录
+- 其他断开 → 指数退避重连(2s → 4s → 8s,上限 30s),重连成功即恢复同步
+- 本地网络抖动不影响数据一致性:所有资源以 REST 接口为准,WS 只负责"何时刷新"
+
 ---
 
 ## 8. 数据对象速查
