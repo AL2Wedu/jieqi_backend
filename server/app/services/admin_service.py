@@ -518,7 +518,7 @@ def list_user_shops(db, page: int, page_size: int) -> dict:
         db.query(User, Player, UserShop)
         .join(Player, Player.user_id == User.id)
         .outerjoin(UserShop, UserShop.player_id == Player.id)
-        .order_by(User.id)
+        .order_by(User.created_at.desc(), User.id)
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
