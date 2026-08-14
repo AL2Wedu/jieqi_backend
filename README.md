@@ -148,7 +148,8 @@ uv run python -m pytest -v                  # 跑测试
 后端可用脚本独立启动,**关闭 Hermes 或终端不影响服务**:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File scripts\run_server.ps1    # 启动(0.0.0.0:8000,后台隐藏窗口)
+powershell -ExecutionPolicy Bypass -File scripts\run_visible.ps1    # 启动(推荐:单独可见终端窗口,日志实时显示)
+powershell -ExecutionPolicy Bypass -File scripts\run_server.ps1     # 启动(0.0.0.0:8000,后台隐藏窗口+日志文件)
 powershell -ExecutionPolicy Bypass -File scripts\stop_server.ps1   # 停止(按 PID,端口残留兜底)
 ```
 

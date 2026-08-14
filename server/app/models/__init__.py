@@ -70,6 +70,8 @@ class Player(Base):
     # 每用户世界时钟:world_accum 为相对全局纪元的累计世界秒(在线 1× / 离线 offline_factor)
     world_accum: Mapped[float] = mapped_column(Float, default=0.0)
     world_last_sync: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 虫害调度:下一次虫害触发时间(每用户隔离,均摊在窗口节气数内)
+    next_pest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 class CoinTransaction(Base):
@@ -179,14 +181,14 @@ class Crop(Base):
 
 class CropInstance(Base):
     __tablename__ = "crop_instances"
-    # 一地一株(部分唯一索引):同一地块最多一个"未收获"作物;已收获的行保留为丰收记录
+    # 一地一株(部分唯一索引):同一地块最多一个"未收获且未摧毁"作物;已收获/已摧毁的行保留为历史
     __table_args__ = (
         Index(
             "uq_crop_inst_active_plot",
             "plot_id",
             unique=True,
-            sqlite_where=text("harvested_at IS NULL"),
-            postgresql_where=text("harvested_at IS NULL"),
+            sqlite_where=text("harvested_at IS NULL AND destroyed_at IS NULL"),
+            postgresql_where=text("harvested_at IS NULL AND destroyed_at IS NULL"),
         ),
     )
 
@@ -201,6 +203,7 @@ class CropInstance(Base):
     predicted_harvest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     term_bonus_applied: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     harvested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    destroyed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # 虫害摧毁
     yield_actual: Mapped[int | None] = mapped_column(Integer, nullable=True)
     extra: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -418,3 +421,43 @@ class CropStorage(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )
+
+
+# ---------- 虫害系统(每用户隔离) ----------
+
+
+class PestEvent(Base):
+    """一次虫害事件:大虫害(音游对抗)或小虫害(定时寄生)。"""
+
+    __tablename__ = "pest_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), index=True)
+    type: Mapped[str] = mapped_column(String(8))  # big / small
+    status: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0进行中 1已结束(成功/驱赶) 2已过期
+    broadcast_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    duration_seconds: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 大虫害音游时长
+    score: Mapped[int | None] = mapped_column(Integer, nullable=True)  # 大虫害成绩
+    max_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    miss_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reward: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # 奖励明细
+    penalty: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # 惩罚明细(寄生目标数)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class PestTarget(Base):
+    """小虫害的单个寄生目标:一块田地一个计时器,时间到摧毁作物。"""
+
+    __tablename__ = "pest_targets"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    pest_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("pest_events.id"), index=True)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), index=True)
+    plot_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("plots.id"))
+    crop_instance_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("crop_instances.id"), nullable=True
+    )
+    ready_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))  # 到点摧毁
+    status: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0寄生中 1已驱赶 2已摧毁
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

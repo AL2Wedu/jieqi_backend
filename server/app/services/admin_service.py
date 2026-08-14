@@ -663,6 +663,12 @@ def update_player_assets(db: Session, user_id: str, data: dict) -> dict:
         if field in data and data[field] is not None:
             setattr(player, field, data[field])
     db.commit()
+    return get_player_assets(db, user_id)
+
+
+def get_player_assets(db: Session, user_id: str) -> dict:
+    """玩家当前资产(管理端查看/弹窗预填)。"""
+    player = _player_by_user(db, user_id)
     user = db.query(User).filter(User.id == player.user_id).first()
     return {
         "player_id": str(player.id),
@@ -686,6 +692,7 @@ def list_player_farm(db: Session, user_id: str) -> dict:
         .filter(
             CropInstance.plot_id.in_([p.id for p in plots]),
             CropInstance.harvested_at.is_(None),
+            CropInstance.destroyed_at.is_(None),
         )
         .all()
     )

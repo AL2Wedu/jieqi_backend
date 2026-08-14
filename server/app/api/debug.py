@@ -8,8 +8,8 @@ from app.core.config import settings
 from app.core.deps import get_current_player, get_db
 from app.core.errors import AppError, ok
 from app.models import Crop, GameConfig, Player
-from app.schemas import DebugConfigRequest, DebugGrowRequest
-from app.services import farm_service, world_service
+from app.schemas import DebugConfigRequest, DebugGrowRequest, PestTriggerRequest
+from app.services import farm_service, pest_service, world_service
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 
@@ -63,3 +63,38 @@ def grow(
     ci.sowed_at = datetime.now(timezone.utc) - timedelta(seconds=crop.grow_seconds)
     db.commit()
     return ok({"plot_id": req.plot_id, "mature": True})
+
+
+@router.post("/pest/trigger")
+def pest_trigger(
+    req: PestTriggerRequest,
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """调试:立刻给当前玩家触发一次虫害(big / small)。"""
+    _guard()
+    event = pest_service.fire_pest(db, player, forced_type=req.type)
+    return ok(event)
+
+
+@router.post("/pest/clear")
+def pest_clear(
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """调试:清除当前玩家所有进行中的虫害(含寄生目标)。"""
+    _guard()
+    from app.models import PestEvent, PestTarget
+
+    n_ev = (
+        db.query(PestEvent)
+        .filter(PestEvent.player_id == player.id, PestEvent.status == 0)
+        .update({PestEvent.status: 1})
+    )
+    n_tg = (
+        db.query(PestTarget)
+        .filter(PestTarget.player_id == player.id, PestTarget.status == 0)
+        .update({PestTarget.status: 1})
+    )
+    db.commit()
+    return ok({"events": n_ev, "targets": n_tg})

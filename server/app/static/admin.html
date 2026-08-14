@@ -170,6 +170,7 @@
     <button class="nav-btn" data-view="worlds" onclick="switchView('worlds')"><span class="nav-ico">🌍</span>世界管理</button>
     <button class="nav-btn" data-view="shop" onclick="switchView('shop')"><span class="nav-ico">🛒</span>商店管理</button>
     <button class="nav-btn" data-view="ai" onclick="switchView('ai')"><span class="nav-ico">🤖</span>AI 设置</button>
+    <button class="nav-btn" data-view="pest" onclick="switchView('pest')"><span class="nav-ico">🐛</span>虫害设置</button>
     <div class="side-foot">
       <div class="mono" style="font-size:11px;color:var(--text-3)">PID 未知</div>
       <button class="btn small danger" style="margin-top:8px" onclick="logout()">退出登录</button>
@@ -236,7 +237,7 @@ function enterApp() {
 }
 
 /* ---------- 视图路由 ---------- */
-const views = { dashboard, users, config, crops, plantings, items, pricing, terms, worlds, shop, ai };
+const views = { dashboard, users, config, crops, plantings, items, pricing, terms, worlds, shop, ai, pest };
 function switchView(name) {
   state.view = name;
   document.querySelectorAll('.nav-btn').forEach(b => b.classList.toggle('active', b.dataset.view === name));
@@ -303,13 +304,17 @@ async function toggleBan(uid, status) {
 }
 
 /* ---------- 玩家资产编辑 ---------- */
-function openAssets(uid) {
-  openModal(`<h3>编辑玩家资产</h3>
-    <div class="form-field"><label>金币</label><input class="inp" id="a-coins" type="number" min="0"></div>
-    <div class="form-field" style="margin-top:10px"><label>等级</label><input class="inp" id="a-level" type="number" min="1"></div>
-    <div class="form-field" style="margin-top:10px"><label>经验</label><input class="inp" id="a-exp" type="number" min="0"></div>
-    <div class="form-field" style="margin-top:10px"><label>已解锁节气(1-24)</label><input class="inp" id="a-term" type="number" min="1" max="24"></div>
-    <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveAssets('${uid}')">保存</button></div>`);
+async function openAssets(uid) {
+  try {
+    const a = await api('/users/' + uid + '/assets');
+    openModal(`<h3>编辑玩家资产 · ${esc(a.name)}</h3>
+      <div class="mono" style="color:var(--text-3);margin-bottom:12px">当前:金币 ${a.coins} · Lv.${a.level} · 经验 ${a.exp} · 解锁节气 ${a.unlocked_term_index}</div>
+      <div class="form-field"><label>金币</label><input class="inp" id="a-coins" type="number" min="0" value="${a.coins}"></div>
+      <div class="form-field" style="margin-top:10px"><label>等级</label><input class="inp" id="a-level" type="number" min="1" value="${a.level}"></div>
+      <div class="form-field" style="margin-top:10px"><label>经验</label><input class="inp" id="a-exp" type="number" min="0" value="${a.exp}"></div>
+      <div class="form-field" style="margin-top:10px"><label>已解锁节气(1-24)</label><input class="inp" id="a-term" type="number" min="1" max="24" value="${a.unlocked_term_index}"></div>
+      <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveAssets('${uid}')">保存</button></div>`);
+  } catch (err) { toast(err.message, 'err'); }
 }
 async function saveAssets(uid) {
   const ids = [['a-coins','coins'], ['a-level','level'], ['a-exp','exp'], ['a-term','unlocked_term_index']];
@@ -387,9 +392,12 @@ async function togglePlot(uid, idx, locked) {
 async function openInventory(uid) {
   try {
     const d = await api('/users/' + uid + '/inventory');
+    const rows = d.items.filter(i => i.active);
+    const hasAny = rows.some(i => i.quantity > 0);
     openModal(`<h3>背包道具(设置数量)</h3>
+      <div class="mono" style="color:var(--text-3);margin-bottom:10px">显示全部道具目录;${hasAny ? '0 为玩家当前没有的' : '该玩家暂无道具,可在下方直接发放数量'}</div>
       <table><thead><tr><th>道具</th><th>当前</th><th>数量(0=清空)</th></tr></thead>
-      <tbody>${d.items.filter(i => i.active).map(i => `
+      <tbody>${rows.map(i => `
         <tr><td>${esc(i.name)} <span class="mono" style="color:var(--text-3)">${esc(i.code)}</span></td>
         <td class="mono">${i.quantity}</td>
         <td><input class="inp mini mono" id="inv-${esc(i.item_id)}" type="number" min="0" value="${i.quantity}"></td>
@@ -406,9 +414,12 @@ async function saveInv(uid, item_id) {
 async function openStorage(uid) {
   try {
     const d = await api('/users/' + uid + '/storage');
+    const rows = d.crops.filter(c => c.active);
+    const hasAny = rows.some(c => c.quantity > 0);
     openModal(`<h3>收成仓(设置数量)</h3>
+      <div class="mono" style="color:var(--text-3);margin-bottom:10px">显示全部作物目录;${hasAny ? '0 为玩家当前没有的' : '该玩家收成仓为空(收获的作物会先入仓,再到商店出售)'}</div>
       <table><thead><tr><th>作物</th><th>当前</th><th>数量(0=清空)</th></tr></thead>
-      <tbody>${d.crops.filter(c => c.active).map(c => `
+      <tbody>${rows.map(c => `
         <tr><td>${esc(c.name)}</td>
         <td class="mono">${c.quantity}</td>
         <td><input class="inp mini mono" id="st-${esc(c.crop_id)}" type="number" min="0" value="${c.quantity}"></td>
@@ -964,6 +975,93 @@ async function saveShopItem(pid, iid) {
     toast('已保存(空覆盖=恢复公式价)');
     openShopUser(pid, '');
     loadShopUsers();
+  } catch (err) { toast(err.message, 'err'); }
+}
+
+/* ---------- 虫害设置(频率/大虫害/阶段倒计时 + 事件记录) ---------- */
+async function pest(el) {
+  const cfg = await api('/pest/config');
+  const sw = cfg['pest.stage_wait'] || {};
+  el.innerHTML = `
+    <div class="page-head"><h1>虫害设置</h1><span class="mono">每用户隔离调度 · 每 ${cfg['pest.window_terms']} 个节气平均 ${cfg['pest.events_per_window']} 次</span></div>
+    <div class="panel" style="max-width:680px">
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
+        <input type="checkbox" id="pest-enabled" ${cfg['pest.enabled'] ? 'checked' : ''}>
+        <label style="color:var(--text)">启用虫害系统</label>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+        <div class="form-field"><label>每窗口事件数(平均)</label>
+          <input class="inp mono" type="number" min="1" id="pest-events" value="${esc(cfg['pest.events_per_window'])}"></div>
+        <div class="form-field"><label>窗口节气数</label>
+          <input class="inp mono" type="number" min="1" id="pest-window" value="${esc(cfg['pest.window_terms'])}"></div>
+        <div class="form-field"><label>大虫害占比(0~1)</label>
+          <input class="inp mono" type="number" step="0.05" min="0" max="1" id="pest-bigratio" value="${esc(cfg['pest.big_ratio'])}"></div>
+        <div class="form-field"><label>大虫害音游时长(秒)</label>
+          <input class="inp mono" type="number" min="5" id="pest-bigdur" value="${esc(cfg['pest.big_duration_seconds'])}"></div>
+        <div class="form-field"><label>成绩提交最短耗时系数(防作弊)</label>
+          <input class="inp mono" type="number" step="0.05" min="0" max="1" id="pest-minelapsed" value="${esc(cfg['pest.min_elapsed_factor'])}"></div>
+        <div class="form-field"><label>达标分数线(score/max)</label>
+          <input class="inp mono" type="number" step="0.05" min="0" max="1" id="pest-pass" value="${esc(cfg['pest.pass_ratio'])}"></div>
+        <div class="form-field"><label>大虫害奖励金币</label>
+          <input class="inp mono" type="number" min="0" id="pest-coins" value="${esc(cfg['pest.reward_coins'])}"></div>
+      </div>
+      <div style="margin-top:12px;font-size:13px;color:var(--text-2)">小虫害摧毁倒计时(秒,按作物阶段):</div>
+      <div style="display:flex;gap:10px;margin-top:6px">
+        <div class="form-field"><label>苗期</label><input class="inp mono" type="number" min="10" id="pest-w1" value="${esc(sw[1] || 120)}"></div>
+        <div class="form-field"><label>生长期</label><input class="inp mono" type="number" min="10" id="pest-w2" value="${esc(sw[2] || 90)}"></div>
+        <div class="form-field"><label>成熟期</label><input class="inp mono" type="number" min="10" id="pest-w3" value="${esc(sw[3] || 60)}"></div>
+      </div>
+      <div style="margin-top:16px">
+        <button class="btn primary" onclick="savePestCfg()">保存配置</button>
+      </div>
+    </div>
+    <div class="page-head" style="margin-top:26px"><h2 style="font-size:15px;font-weight:600">虫害事件记录</h2><button class="btn small" onclick="loadPestEvents()">刷新</button></div>
+    <div class="panel"><table>
+      <thead><tr><th>玩家</th><th>类型</th><th>结果</th><th>成绩</th><th>miss</th><th>奖励/惩罚</th><th>时间</th></tr></thead>
+      <tbody id="pest-events-body"><tr><td colspan="7" class="empty">加载中…</td></tr></tbody>
+    </table></div>`;
+  loadPestEvents();
+}
+async function loadPestEvents() {
+  try {
+    const d = await api('/pest/events?page=1&page_size=30');
+    $('#pest-events-body').innerHTML = d.items.map(e => {
+      const tag = e.type === 'big'
+        ? (e.score === null ? '⏳ 进行中' : (e.reward ? '✅ 奖励' : '❌ 惩罚'))
+        : (e.status === 0 ? '🐛 寄生中' : (e.status === 2 ? '💀 已摧毁' : '🛡 已驱赶'));
+      const detail = e.reward ? `💰${e.reward.coins || 0}` : (e.penalty ? `🐛×${e.penalty.targets || 0}` : '');
+      return `<tr>
+        <td>${esc(e.player)}</td>
+        <td>${e.type === 'big' ? '大虫害' : '小虫害'}</td>
+        <td>${tag}</td>
+        <td class="mono">${e.score === null ? '-' : `${e.score}/${e.max_score}`}</td>
+        <td class="mono">${e.miss_count === null ? '-' : e.miss_count}</td>
+        <td>${esc(detail)}</td>
+        <td class="mono">${esc((e.broadcast_at || '').slice(0, 16))}</td></tr>`;
+    }).join('') || '<tr><td colspan="7" class="empty">暂无虫害事件</td></tr>';
+  } catch (e) {
+    $('#pest-events-body').innerHTML = `<tr><td colspan="7" class="empty">${esc(e.message)}</td></tr>`;
+  }
+}
+async function savePestCfg() {
+  try {
+    await api('/pest/config', 'PUT', {
+      'pest.enabled': $('#pest-enabled').checked,
+      'pest.events_per_window': parseInt($('#pest-events').value) || 3,
+      'pest.window_terms': parseInt($('#pest-window').value) || 2,
+      'pest.big_ratio': parseFloat($('#pest-bigratio').value) || 0.3,
+      'pest.big_duration_seconds': parseInt($('#pest-bigdur').value) || 30,
+      'pest.min_elapsed_factor': parseFloat($('#pest-minelapsed').value) || 0.6,
+      'pest.pass_ratio': parseFloat($('#pest-pass').value) || 0.6,
+      'pest.reward_coins': parseInt($('#pest-coins').value) || 20,
+      'pest.stage_wait': {
+        1: parseInt($('#pest-w1').value) || 120,
+        2: parseInt($('#pest-w2').value) || 90,
+        3: parseInt($('#pest-w3').value) || 60,
+      },
+    });
+    toast('虫害配置已保存');
+    loadView();
   } catch (err) { toast(err.message, 'err'); }
 }
 

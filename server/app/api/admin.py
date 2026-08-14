@@ -27,7 +27,7 @@ from app.schemas import (
     AdminUserShopItemPayload,
     AdminWorldPayload,
 )
-from app.services import admin_service, ai_service
+from app.services import admin_service, ai_service, pest_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -84,6 +84,16 @@ def user_assets(
 ):
     """编辑玩家资产:金币 / 等级 / 经验 / 解锁节气(全可选)。"""
     return ok(admin_service.update_player_assets(db, user_id, req.model_dump(exclude_none=True)))
+
+
+@router.get("/users/{user_id}/assets")
+def user_assets_get(
+    user_id: str,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """玩家当前资产(弹窗预填用)。"""
+    return ok(admin_service.get_player_assets(db, user_id))
 
 
 @router.get("/config")
@@ -386,6 +396,35 @@ def ai_usage(
 ):
     """全服每用户 AI 用量。"""
     return ok(ai_service.admin_usage(db, page, page_size))
+
+
+# ---------- 虫害设置与事件 ----------
+
+@router.get("/pest/config")
+def pest_config(admin: str = Depends(get_current_admin), db: Session = Depends(get_db)):
+    """虫害系统配置(触发频率/大虫害参数/阶段倒计时)。"""
+    return ok(pest_service.pest_config(db))
+
+
+@router.put("/pest/config")
+def pest_config_save(
+    payload: dict,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """保存虫害配置(pest.*,任意子集)。"""
+    return ok(pest_service.save_pest_config(db, payload))
+
+
+@router.get("/pest/events")
+def pest_events(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """虫害事件记录(玩家/类型/成绩/奖励/惩罚)。"""
+    return ok(pest_service.list_events(db, page, page_size))
 
 
 # ---------- 商店管理(全局默认 + 每用户商店) ----------

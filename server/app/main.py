@@ -23,7 +23,7 @@ def init_db() -> None:
 
 
 def _ensure_player_world_columns() -> None:
-    """老 dev.db 无每用户世界列:幂等 ALTER 补齐(新库 create_all 已建)。"""
+    """老 dev.db 无每用户世界/虫害列:幂等 ALTER 补齐(新库 create_all 已建)。"""
     try:
         cols = {c["name"] for c in inspect(engine).get_columns("players")}
         with engine.begin() as conn:
@@ -31,8 +31,27 @@ def _ensure_player_world_columns() -> None:
                 conn.execute(text("ALTER TABLE players ADD COLUMN world_accum REAL DEFAULT 0"))
             if "world_last_sync" not in cols:
                 conn.execute(text("ALTER TABLE players ADD COLUMN world_last_sync DATETIME"))
+            if "next_pest_at" not in cols:
+                conn.execute(text("ALTER TABLE players ADD COLUMN next_pest_at DATETIME"))
     except Exception as e:  # noqa: BLE001 迁移失败不阻塞启动(测试库重建不受影响)
-        logger.warning("玩家世界列迁移跳过: %s", e)
+        logger.warning("玩家世界/虫害列迁移跳过: %s", e)
+    try:
+        cols = {c["name"] for c in inspect(engine).get_columns("crop_instances")}
+        with engine.begin() as conn:
+            if "destroyed_at" not in cols:
+                conn.execute(
+                    text("ALTER TABLE crop_instances ADD COLUMN destroyed_at DATETIME")
+                )
+            # 部分唯一索引重建:未收获且未摧毁
+            conn.execute(text("DROP INDEX IF EXISTS uq_crop_inst_active_plot"))
+            conn.execute(
+                text(
+                    "CREATE UNIQUE INDEX uq_crop_inst_active_plot ON crop_instances (plot_id) "
+                    "WHERE harvested_at IS NULL AND destroyed_at IS NULL"
+                )
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.warning("crop_instances 摧毁列迁移跳过: %s", e)
 
 
 @asynccontextmanager

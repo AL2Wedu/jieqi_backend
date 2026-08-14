@@ -51,6 +51,20 @@ class AdminAiConfigPayload(BaseModel):
     model: str | None = None
 
 
+class PestResultRequest(BaseModel):
+    score: int
+    max_score: int
+    miss_count: int = 0
+
+
+class PestDriveAwayRequest(BaseModel):
+    plot_id: str
+
+
+class PestTriggerRequest(BaseModel):
+    type: str = "big"  # big / small
+
+
 class AdminShopSettingsPayload(BaseModel):
     default_stock: int | None = None
     restock_seconds: int | None = None

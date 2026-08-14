@@ -81,6 +81,7 @@ def get_farm_state(db: Session, player) -> dict:
         .filter(
             CropInstance.plot_id.in_([p.id for p in plots]),
             CropInstance.harvested_at.is_(None),
+            CropInstance.destroyed_at.is_(None),
         )
         .all()
     )
