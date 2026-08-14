@@ -101,7 +101,7 @@
 | 8 | POST | `/v1/farm/plots/{plot_id}/sow` | 🔐 | 播种(解锁→宜种窗→种子校验) |
 | 9 | POST | `/v1/farm/plots/{plot_id}/water` | 🔐 | 浇水(水分补满,重新计时衰减) |
 | 10 | POST | `/v1/farm/plots/{plot_id}/harvest` | 🔐 | 收获(入收成仓,不直接给金币) |
-| 11 | POST | `/v1/farm/plots/{plot_id}/clear` | 🔐 | 铲除(销毁当前作物,地块可再种) |
+| 11 | POST | `/v1/farm/plots/{plot_id}/clear` | 🔐 | 铲除(移除当前作物,地块可再种) |
 | 12 | GET | `/v1/shop/state` | 🔐 | 我的商店(商品+库存+当前季节与倍率) |
 | 13 | GET | `/v1/shop/items` | 🔐 | 商店商品列表(简版) |
 | 14 | POST | `/v1/shop/items/{item_id}/buy` | 🔐 | 购买道具(扣金币,写账本) |
@@ -350,15 +350,15 @@
 |---|---|---|
 | `farm.farm_id / name / plot_count / grid` | — | 农场信息(`grid={cols:4, rows:5}`,地块 idx 行优先) |
 | `current_term` | object | 同 5.6 |
-| `wither_events` | array | 本次读取时枯萎的作物 `[{plot_id, idx, crop_name}]`(空数组=无) |
+| `wither_events` | array | 本次读取时**新枯萎(冻死)**的作物 `[{plot_id, idx, crop_name, status:"wilted"}]`(空数组=无);作物仍在地块,不消失 |
 | `weed_events` | array | 本次读取时新长的杂草地块 `[{plot_id, idx}]` |
 | `plots[]` | array | 20 个地块 |
 
 `plots[]` 字段: `plot_id` / `idx`(1-20)/ `soil_quality`(1-3)/ `locked` / `weeded`(bool,**附杂草 → 该地块作物生长减速**)/ `crop`(null=空地)
 
-`plots[].crop` 字段: `crop_id` / `name` / `art`(种子+三阶段素材路径)/ `settings`(植物高级设定,见 10.4)/ `stage`(1 苗期/2 生长期/3 成熟)/ `growth_progress`(0-100)/ `water_level`(0-100,**已衰减后的有效值**)/ `water_need`(需水红线)/ `predicted_harvest_at`
+`plots[].crop` 字段: `crop_id` / `name` / `art`(种子+三阶段素材路径)/ `settings`(植物高级设定,见 10.4)/ `stage`(1 苗期/2 生长期/3 成熟)/ `status`(`growing` 生长中 / `mature` 成熟 / `wilted` **枯萎冻死**——仍占地块,待铲除或收割)/ `growth_progress`(0-100)/ `water_level`(0-100,**已衰减后的有效值**)/ `water_need`(需水红线)/ `predicted_harvest_at`
 
-**注意事项:** ① 本接口有**副作用**:会执行枯萎判定与杂草触发检查(到点即落库),并返回对应事件;② `crop.settings` 供客户端展示需水/枯萎季节等;③ 作物素材取图闭环见 10.3。
+**注意事项:** ① 本接口有**副作用**:会执行枯萎判定与杂草触发检查(到点即落库),并返回对应事件;② **枯萎作物不直接消失**:`status="wilted"` 提示"植物冻死了",玩家可 `clear` 铲除或 `harvest` 收割(减产入劣质仓);③ `crop.settings` 供客户端展示需水/枯萎季节等;④ 作物素材取图闭环见 10.3。
 
 ### 5.8 POST /v1/farm/plots/{plot_id}/sow — 播种(🔐)
 
@@ -394,29 +394,29 @@
 
 **响应(data):** `{ "plot_id": "...", "water_level": 100 }`
 
-**错误:** `21001 PLOT_NOT_FOUND` · `21004 PLOT_EMPTY`(地块无作物)
+**错误:** `21001 PLOT_NOT_FOUND` · `21004 PLOT_EMPTY`(地块无作物)· `21009 CROP_WILTED`(作物已枯萎冻死,无法浇水,HTTP 400)
 
-**注意事项:** 浇水后水分从 100 重新衰减(每节气 -10);低于作物 `water_need.min` → 生长停滞。
+**注意事项:** 浇水后水分从 100 重新衰减(每节气 -10);低于作物 `water_need.min` → 生长停滞。枯萎作物已死,浇水会被拒绝。
 
 ### 5.10 POST /v1/farm/plots/{plot_id}/harvest — 收获(🔐)
 
 **路径参数:** `plot_id`。
 
-**响应(data):** `plot_id` / `crop_id` / `crop_name` / `yield`(实际产量,已含肥力加成/减产)/ `storage_after`(收成仓该作物总量)/ `exp_gained`(收获经验 = 产量×2)/ `level`(收获后等级)/ `leveled_up`(本次是否升级)/ `note`(提示文案)
+**响应(data):** `plot_id` / `crop_id` / `crop_name` / `wilted`(是否枯萎抢收)/ `yield`(实际产量,已含肥力加成/减产/枯萎减半)/ `storage_after`(收成仓该作物总量)/ `exp_gained`(收获经验 = 产量×2)/ `level`(收获后等级)/ `leveled_up`(本次是否升级)/ `note`(提示文案)
 
-**错误:** `21001 PLOT_NOT_FOUND` · `21004 PLOT_EMPTY` · `23001 CROP_NOT_MATURE`(未成熟,HTTP 400)
+**错误:** `21001 PLOT_NOT_FOUND` · `21004 PLOT_EMPTY` · `23001 CROP_NOT_MATURE`(未成熟,HTTP 400;枯萎作物不受此限)
 
-**注意事项:** ① 产量公式:`yield_base × (1 + 0.1×(肥力-1))`,土壤肥力 < `fertility_need` 再乘 `(soil/need)` 减产;② 收成**入收成仓**(不直接给金币),出售走 `POST /v1/shop/crops/{id}/sell`;③ **每株收成 +2 经验**,累计 100 经验自动升 1 级(`exp//100+1`,只升不降),客户端可用 `leveled_up` 弹升级提示;④ 收获后地块可再种(历史记录保留)。
+**注意事项:** ① 产量公式:`yield_base × (1 + 0.1×(肥力-1))`,土壤肥力 < `fertility_need` 再乘 `(soil/need)` 减产;**枯萎作物收割再 ×0.5**,且**不必成熟**也可抢收(抢救性收割);② 收成**入收成仓**(不直接给金币),枯萎收成计入 `wilted_quantity`(劣质),出售时收购价大打折扣(×0.3);③ **每株收成 +2 经验**,累计 100 经验自动升 1 级(`exp//100+1`,只升不降),客户端可用 `leveled_up` 弹升级提示;④ 收获后地块可再种(历史记录保留)。
 
 ### 5.11 POST /v1/farm/plots/{plot_id}/clear — 铲除(🔐)
 
 **路径参数:** `plot_id`。
 
-**响应(data):** `{ "plot_id": "...", "cleared": true }`
+**响应(data):** `{ "plot_id": "...", "cleared": true, "wilted": false }`(`wilted`=铲除的作物是否为枯萎状态)
 
 **错误:** `21001 PLOT_NOT_FOUND` · `21004 PLOT_EMPTY`
 
-**注意事项:** 铲除 = 销毁当前作物(无产量),地块立即可再种;被虫害/枯萎摧毁的作物不占用地块。
+**注意事项:** 铲除 = 移除当前作物(无产量),地块立即可再种;枯萎(冻死)作物**占用地块**,需铲除或收割后才能再种。
 
 ### 5.12 GET /v1/shop/state — 我的商店(🔐)
 
@@ -462,8 +462,10 @@
 |---|---|---|
 | `crop_id` | str | 作物 UUID |
 | `name` | str | 作物名 |
-| `quantity` | int | 仓内数量(0 的不返回) |
-| `sell_price` | int | **当前季节**单株收购价(已含 max_value 封顶) |
+| `quantity` | int | 仓内总数量(正常 + 枯萎劣质,0 的不返回) |
+| `wilted_quantity` | int | 其中**枯萎劣质收成**的数量(售价大打折扣) |
+| `sell_price` | int | **当前季节**单株正常收购价(已含 max_value 封顶) |
+| `wilted_sell_price` | int | 枯萎劣质收成单株收购价(= 正常价 × 0.3) |
 
 ### 5.16 POST /v1/shop/crops/{crop_id}/sell — 出售收成(🔐)
 
@@ -475,11 +477,11 @@
 |---|---|---|---|---|
 | `quantity` | int | 否 | ≥1 | 默认 1 |
 
-**响应(data):** `crop_id` / `name` / `quantity` / `price`(总价)/ `unit_price` / `storage_after`(仓内剩余)/ `coins_balance`(出售后余额)
+**响应(data):** `crop_id` / `name` / `quantity` / `wilted`(本次卖出中枯萎劣质收成的数量)/ `price`(总价)/ `unit_price`(混合单价)/ `storage_after`(仓内剩余,含正常+枯萎)/ `coins_balance`(出售后余额)
 
 **错误:** `21005 CROP_NOT_FOUND` · `22007 NOT_ENOUGH_CROP`(仓内不足,HTTP 400)· `10001 INVALID_PARAMS`
 
-**注意事项:** 按当前季节价结算(秋 1.2 倍最赚/冬 0.9 倍最亏),金币写账本。
+**注意事项:** 按当前季节价结算(秋 1.2 倍最赚/冬 0.9 倍最亏),金币写账本;**出售先扣正常收成(原价),不足再扣枯萎劣质收成(×0.3 大打折价)**。
 ---
 
 ## 6. 扩展玩法端点详解
@@ -1051,7 +1053,7 @@
 | `pest_big` | 大虫害触发(音游对抗) | `{pest_id, type:"big", duration_seconds}` | 弹音游;结束 POST `/v1/farm/pest/{id}/result` |
 | `pest_small` | 小虫害寄生(含惩罚寄生) | `{pest_id, type:"small", targets:[{pest_id, plot_id, idx, crop, stage, wait_seconds, ready_at}]}` | 标红地块 + 倒计时;驱赶 POST `/v1/farm/pest/{id}/drive-away` |
 | `pest_destroyed` | 寄生倒计时到点,作物被摧毁 | `{targets:[{pest_id, plot_id}]}` | 刷新地块(作物已消失) |
-| `crop_withered` | 玩家季节进入植物枯萎季节 | `{targets:[{plot_id, idx, crop_name}]}` | 刷新地块 + 弹枯萎提示 |
+| `crop_withered` | 玩家季节进入植物枯萎季节 | `{targets:[{plot_id, idx, crop_name, status:"wilted"}]}` | 显示"植物冻死了"覆盖层(作物**仍占地块**,不消失);玩家可铲除/收割 |
 | `weed_growth` | 本节气随机时刻杂草生长 | `{targets:[{plot_id, idx}]}` | 地块显示杂草(生长减速)+ 刷新 farm/state |
 
 示例:
@@ -1160,7 +1162,7 @@ GET /v1/art/version                                 # 版本:version/crops/terms
 
 | 键 | 说明 |
 |---|---|
-| `wither_seasons` | 枯萎季节(玩家世界进入时未收获作物枯萎) |
+| `wither_seasons` | 枯萎季节(玩家世界进入时未收获作物**标记枯萎/冻死**——仍占地块,可铲除或收割,收割减产入劣质仓) |
 | `fast_growth_seasons` | `{季节: 倍率}` —— 该季节播种 → 生长速度 × 倍率 |
 | `water_need` | `{min, ideal}` —— 水分每节气 -10,低于 min 生长停滞 |
 | `fertility_need` | 土壤肥力低于该值 → 收成减产 ×(soil/need) |
@@ -1199,6 +1201,7 @@ GET /v1/art/version                                 # 版本:version/crops/terms
 | 21006 | NOT_ENOUGH_ITEM | 400 | 种子不足(播种时) |
 | 21007 | CROP_IN_USE | 400 | 有种植中的作物,无法删除 |
 | 21008 | CROP_LOCKED | 400 | 植物未解锁(经验/等级未达其一) |
+| 21009 | CROP_WILTED | 400 | 作物已枯萎冻死(无法浇水,需铲除或收割) |
 | 22001 | NOT_ENOUGH_ITEM | 400 | 道具数量不足(使用道具时) |
 | 22002 | ITEM_NOT_FOUND | 400 | 道具/商品不存在 |
 | 22003 | NOT_ENOUGH_COINS | 400 | 金币不足 |

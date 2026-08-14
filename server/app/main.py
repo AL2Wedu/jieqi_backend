@@ -24,6 +24,7 @@ def init_db() -> None:
     _ensure_player_world_columns()
     _ensure_crop_columns()
     _ensure_weed_columns()
+    _ensure_wilted_columns()
 
 
 def _ensure_player_world_columns() -> None:
@@ -85,6 +86,24 @@ def _ensure_weed_columns() -> None:
                 )
     except Exception as e:
         logger.warning("杂草系统列迁移跳过: %s", e)
+
+
+def _ensure_wilted_columns() -> None:
+    """枯萎改状态列:crop_instances.wilted_at + crop_storage.wilted_quantity(幂等 ALTER)。"""
+    try:
+        with engine.begin() as conn:
+            cols = {c["name"] for c in inspect(engine).get_columns("crop_instances")}
+            if "wilted_at" not in cols:
+                conn.execute(
+                    text("ALTER TABLE crop_instances ADD COLUMN wilted_at DATETIME")
+                )
+            cols = {c["name"] for c in inspect(engine).get_columns("crop_storage")}
+            if "wilted_quantity" not in cols:
+                conn.execute(
+                    text("ALTER TABLE crop_storage ADD COLUMN wilted_quantity INTEGER DEFAULT 0")
+                )
+    except Exception as e:
+        logger.warning("枯萎列迁移跳过: %s", e)
 
 
 @asynccontextmanager

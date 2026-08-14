@@ -999,6 +999,7 @@ def admin_set_storage(db: Session, user_id: str, crop_id: str, quantity: int) ->
             db.delete(row)
     elif row:
         row.quantity = quantity
+        row.wilted_quantity = 0  # 管理端设定为正常收成(绝对值),清空枯萎劣质部分
     else:
         db.add(CropStorage(player_id=player.id, crop_id=cid, quantity=quantity))
     db.commit()
@@ -1009,7 +1010,7 @@ def list_player_storage(db: Session, user_id: str) -> dict:
     """玩家收成仓明细(全部作物,数量 0 也展示),供管理端控制面板。"""
     player = _player_by_user(db, user_id)
     rows = {
-        r.crop_id: r.quantity
+        r.crop_id: (r.quantity, r.wilted_quantity)
         for r in db.query(CropStorage).filter(CropStorage.player_id == player.id).all()
     }
     crops = [
@@ -1017,7 +1018,8 @@ def list_player_storage(db: Session, user_id: str) -> dict:
             "crop_id": str(c.id),
             "name": c.name,
             "category": c.category,
-            "quantity": rows.get(c.id, 0),
+            "quantity": rows.get(c.id, (0, 0))[0],
+            "wilted_quantity": rows.get(c.id, (0, 0))[1],  # 枯萎劣质收成(售价打折)
             "active": c.active,
         }
         for c in db.query(Crop).order_by(Crop.sort_order, Crop.name).all()

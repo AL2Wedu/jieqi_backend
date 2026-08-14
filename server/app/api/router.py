@@ -109,7 +109,7 @@ async def ws_endpoint(websocket: WebSocket, token: str = Query(default="")):
                     event = None
                 # 2) 小虫害倒计时到点摧毁
                 destroyed = pest_service.check_expiry(db, player)
-                # 3) 枯萎判定:玩家季节进入作物枯萎季节 → 销毁
+                # 3) 枯萎判定:玩家季节进入作物枯萎季节 → 标记枯萎(冻死,仍占地块,待玩家铲除/收割)
                 withered = farm_service.check_wither(db, player)
                 # 4) 杂草判定:到点生长(随机地块附杂草)
                 from app.services import weed_service

@@ -25,6 +25,7 @@ FARM_ROWS = 5  # 竖 5
 # 格子编号规则:idx 1-20,按行优先 —— idx = (row-1)*4 + col (row∈1..5, col∈1..4)
 
 _WATER_DECAY_PER_TERM = 10  # 水分随世界时间衰减:每节气 -10
+_WILTED_YIELD_FACTOR = 0.5  # 枯萎作物收割产量系数(冻死后减产一半)
 
 
 def season_name(term_index: int) -> str:
@@ -107,13 +108,22 @@ def crop_view(
             stalled = (stall_at - sowed).total_seconds() * rate / grow * 100
             progress = min(progress, stalled)
 
+    # 枯萎/冻死:进度冻结在枯萎时刻,不再生长(覆盖水分停滞,前端据此显示"冻死"而非移除)
+    wilted = ci.wilted_at is not None
+    if wilted:
+        frozen = (ci.extra or {}).get("wilted_progress")
+        if isinstance(frozen, (int, float)):
+            progress = min(100.0, float(frozen))
+
     stage = 3 if progress >= 100 else (2 if progress >= 50 else 1)
+    status = "wilted" if wilted else ("mature" if stage >= 3 else "growing")
     return {
         "crop_id": str(ci.crop_id),
         "name": crop.name if crop else "?",
         "art": (crop.art if crop else {}) or {},
         "settings": settings,  # 植物高级设定(客户端展示需水/枯萎季节等)
         "stage": stage,
+        "status": status,  # growing 生长中 / mature 成熟 / wilted 枯萎冻死(待铲除或收割)
         "growth_progress": int(progress),
         "water_level": water_eff,
         "water_need": wmin,
@@ -124,9 +134,12 @@ def crop_view(
 
 
 def check_wither(db: Session, player, now: datetime | None = None) -> list[dict]:
-    """枯萎判定:玩家当前季节进入作物的枯萎季节 → 未收获作物枯萎(幂等落库)。
+    """枯萎判定:玩家当前季节进入作物的枯萎季节 → 未收获作物标记为"枯萎/冻死"(幂等落库)。
 
-    返回本次枯萎的事件列表(供 WS 推送 / 状态响应提示)。
+    **不再直接销毁**:枯萎作物仍占用地块,前端通过 crop.status="wilted" 展示"植物冻死了",
+    玩家可 `clear` 铲除或 `harvest` 收割(产量减半,入仓为劣质收成,售价大打折扣)。
+
+    返回本次新枯萎的事件列表(供 WS 推送 / 状态响应提示)。
     """
     now = now or datetime.now(timezone.utc)
     farm = _get_farm(db, player)
@@ -148,18 +161,22 @@ def check_wither(db: Session, player, now: datetime | None = None) -> list[dict]
     for ci, crop in rows:
         settings = (crop.settings or {}) or {}
         if season in (settings.get("wither_seasons") or []):
-            extra = dict(ci.extra or {})
-            extra["destroyed_reason"] = "wither"
-            ci.extra = extra
-            ci.destroyed_at = now
-            plot = db.query(Plot).filter(Plot.id == ci.plot_id).first()
-            events.append(
-                {
-                    "plot_id": str(ci.plot_id),
-                    "idx": plot.idx if plot else None,
-                    "crop_name": crop.name,
-                }
-            )
+            if ci.wilted_at is None:  # 幂等:只标记一次
+                # 冻结当前生长进度(枯萎作物不再生长)
+                view = crop_view(ci, crop)
+                extra = dict(ci.extra or {})
+                extra["wilted_progress"] = view["growth_progress"]
+                ci.extra = extra
+                ci.wilted_at = now
+                plot = db.query(Plot).filter(Plot.id == ci.plot_id).first()
+                events.append(
+                    {
+                        "plot_id": str(ci.plot_id),
+                        "idx": plot.idx if plot else None,
+                        "crop_name": crop.name,
+                        "status": "wilted",
+                    }
+                )
     if events:
         db.commit()
     return events
@@ -329,6 +346,8 @@ def sow(db: Session, player, plot_id: str, crop_id: str) -> dict:
 
 def water(db: Session, player, plot_id: str) -> dict:
     ci = _get_active_crop(db, player, plot_id)
+    if ci.wilted_at is not None:
+        raise AppError("CROP_WILTED", "作物已枯萎冻死,无法浇水,请铲除或收割", code=21009)
     ci.water_level = 100
     extra = dict(ci.extra or {})
     extra["watered_at"] = datetime.now(timezone.utc).isoformat()  # 水分衰减从此刻重新计时
@@ -342,7 +361,9 @@ def harvest(db: Session, player, plot_id: str) -> dict:
     crop = db.query(Crop).filter(Crop.id == ci.crop_id).first()
     plot = db.query(Plot).filter(Plot.id == ci.plot_id).first()
     view = crop_view(ci, crop)
-    if view["stage"] < 3:
+    is_wilted = ci.wilted_at is not None
+    # 枯萎/冻死作物任何时候都能收割(抢救性收割);正常作物须成熟
+    if not is_wilted and view["stage"] < 3:
         raise AppError("CROP_NOT_MATURE", "作物尚未成熟", code=23001)
     settings = (crop.settings or {}) or {}
     # 产量 = 基础 × (1 + 0.1×(肥力-1));土壤肥力低于需肥力 → 减产 ×(soil/need)
@@ -350,6 +371,9 @@ def harvest(db: Session, player, plot_id: str) -> dict:
     fert_need = max(1, int(settings.get("fertility_need") or 1))
     if plot.soil_quality < fert_need:
         y *= plot.soil_quality / fert_need
+    if is_wilted:
+        # 枯萎/冻死作物收割:产量减半,入仓为劣质收成(商店售价大打折扣)
+        y *= _WILTED_YIELD_FACTOR
     yield_actual = int(round(max(1.0, y)))
     now = datetime.now(timezone.utc)
     ci.harvested_at = now
@@ -359,43 +383,58 @@ def harvest(db: Session, player, plot_id: str) -> dict:
         "soil_quality": plot.soil_quality,
         "fertility_need": fert_need,
         "yield": yield_actual,
+        "wilted": is_wilted,
     }
-    # 收成入仓(不直接结算金币):玩家到商店按当前季节价择机出售
+    # 收成入仓(不直接结算金币):正常/枯萎分别入仓,枯萎劣质收成售价打折
     st = (
         db.query(CropStorage)
         .filter(CropStorage.player_id == player.id, CropStorage.crop_id == crop.id)
         .first()
     )
     if st:
-        st.quantity += yield_actual
+        if is_wilted:
+            st.wilted_quantity += yield_actual
+        else:
+            st.quantity += yield_actual
+        storage_after = st.quantity + st.wilted_quantity
     else:
-        db.add(
-            CropStorage(
-                player_id=player.id, crop_id=crop.id, quantity=yield_actual
-            )
+        st = CropStorage(
+            player_id=player.id,
+            crop_id=crop.id,
+            quantity=0 if is_wilted else yield_actual,
+            wilted_quantity=yield_actual if is_wilted else 0,
         )
+        db.add(st)
+        storage_after = yield_actual
     db.commit()
     # 收获给经验(每株 +2):核心循环正反馈,附带自动升级
     from app.services.goal_service import apply_exp
 
     exp_info = apply_exp(db, player, yield_actual * 2)
     db.commit()
+    note = (
+        "已入收成仓(枯萎劣质收成,售价大打折扣),可在商店出售"
+        if is_wilted
+        else "已入收成仓,可在商店按当前季节价出售"
+    )
     return {
         "plot_id": plot_id,
         "crop_id": str(crop.id),
         "crop_name": crop.name,
+        "wilted": is_wilted,
         "yield": yield_actual,
-        "storage_after": (st.quantity if st else yield_actual),
+        "storage_after": storage_after,
         "exp_gained": exp_info["exp_gained"],
         "level": exp_info["level_after"],
         "leveled_up": exp_info["level_after"] > exp_info["level_before"],
-        "note": "已入收成仓,可在商店按当前季节价出售",
+        "note": note,
     }
 
 
 def clear(db: Session, player, plot_id: str) -> dict:
     ci = _get_active_crop(db, player, plot_id)
+    was_wilted = ci.wilted_at is not None
     ci.harvested_at = datetime.now(timezone.utc)
     ci.yield_actual = 0
     db.commit()
-    return {"plot_id": plot_id, "cleared": True}
+    return {"plot_id": plot_id, "cleared": True, "wilted": was_wilted}

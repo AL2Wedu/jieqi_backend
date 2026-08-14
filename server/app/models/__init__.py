@@ -209,6 +209,7 @@ class CropInstance(Base):
     term_bonus_applied: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     harvested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     destroyed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # 虫害摧毁
+    wilted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)  # 枯萎/冻死(仍占地块,可铲除或收割)
     yield_actual: Mapped[int | None] = mapped_column(Integer, nullable=True)
     extra: Mapped[dict] = mapped_column(JSON, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
@@ -423,6 +424,7 @@ class CropStorage(Base):
     player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), index=True)
     crop_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("crops.id"))
     quantity: Mapped[int] = mapped_column(Integer, default=0)
+    wilted_quantity: Mapped[int] = mapped_column(Integer, default=0)  # 枯萎收割的劣质收成(售价大打折扣)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow
     )

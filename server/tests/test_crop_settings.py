@@ -166,10 +166,10 @@ def test_water_decay_and_stall():
     assert view2["growth_progress"] == 100  # 无停滞,照常成熟
 
 
-# ---------- 5. 枯萎 ----------
+# ---------- 5. 枯萎(改状态:冻死仍占地块,可铲除或收割,不直接消失) ----------
 
 def test_wither_on_season(client):
-    """玩家世界进入冬季 → 未收获水稻枯萎(plot 变空 + wither_events 提示)。"""
+    """玩家世界进入冬季 → 未收获水稻标记枯萎(仍占地块,status=wilted,不直接消失)。"""
     h = _reg(client, "wither_rice")
     _advance_term(client, h, (5, 8))  # 水稻宜种窗(清明~小满)
     seed = _buy_seed(client, h, "seed_shuidao")
@@ -193,7 +193,130 @@ def test_wither_on_season(client):
     assert len(st["wither_events"]) == 1
     assert st["wither_events"][0]["crop_name"] == "水稻"
     plot = next(p for p in st["plots"] if p["idx"] == 1)
-    assert plot["crop"] is None  # 枯萎销毁,地块可再种
+    assert plot["crop"] is not None  # 枯萎作物仍在地块,不直接消失
+    assert plot["crop"]["status"] == "wilted"  # 前端据此显示"植物冻死了"
+    assert plot["crop"]["name"] == "水稻"
+
+    # 枯萎作物不能浇水
+    r = client.post(f"/v1/farm/plots/{plot['plot_id']}/water", headers=h).json()
+    assert r["code"] == 21009 and r["error_code"] == "CROP_WILTED", r
+
+    # 铲除(clear)清掉枯萎作物 → 地块可再种
+    r = client.post(f"/v1/farm/plots/{plot['plot_id']}/clear", headers=h).json()
+    assert r["code"] == 0 and r["data"]["wilted"] is True
+    st = client.get("/v1/farm/state", headers=h).json()["data"]
+    plot = next(p for p in st["plots"] if p["idx"] == 1)
+    assert plot["crop"] is None
+
+
+def test_wilted_harvest_salvage_and_sell(client):
+    """枯萎作物收割:产量减半,入仓为劣质收成(wilted_quantity),售价大打折扣。"""
+    h = _reg(client, "wilt_rice_harvest")
+    _advance_term(client, h, (5, 8))
+    seed = _buy_seed(client, h, "seed_shuidao")
+    state = client.get("/v1/farm/state", headers=h).json()["data"]
+    pid = state["plots"][0]["plot_id"]
+    r = _sow(client, h, seed, pid)
+    assert r["code"] == 0, r
+
+    # 推到冬季触发枯萎
+    from app.models import Player, TermConfig
+    from app.services import world_service
+
+    with SessionLocal() as db:
+        terms = db.query(TermConfig).order_by(TermConfig.term_index).all()
+        accum = sum(t.duration_seconds for t in terms[:18])
+        u = db.query(User).filter(User.name == "wilt_rice_harvest").first()
+        player = db.query(Player).filter(Player.user_id == u.id).first()
+        world_service.set_world(db, player, accum=accum)
+
+    st = client.get("/v1/farm/state", headers=h).json()["data"]
+    assert next(p for p in st["plots"] if p["idx"] == 1)["crop"]["status"] == "wilted"
+
+    # 收割枯萎作物:水稻 base6 × 肥力加成1.0 × 枯萎系数0.5 = 3(不必成熟也能抢收)
+    r = client.post(f"/v1/farm/plots/{pid}/harvest", headers=h).json()
+    assert r["code"] == 0, r
+    assert r["data"]["wilted"] is True
+    assert r["data"]["yield"] == 3
+
+    # 收成仓:全部为劣质收成;冬季正常价 20×0.8×0.9×1.0=14,枯萎价 round(14×0.3)=4
+    storage = client.get("/v1/shop/storage", headers=h).json()["data"]["items"]
+    rice = next(i for i in storage if i["name"] == "水稻")
+    assert rice["quantity"] == 3 and rice["wilted_quantity"] == 3
+    assert rice["sell_price"] == 14
+    assert rice["wilted_sell_price"] == 4
+
+    # 3 株枯萎 = 12 金币
+    r = client.post(
+        f"/v1/shop/crops/{seed['effect']['crop_id']}/sell",
+        json={"quantity": 3},
+        headers=h,
+    ).json()
+    assert r["code"] == 0, r
+    assert r["data"]["price"] == 12
+    assert r["data"]["wilted"] == 3
+
+
+def test_mixed_storage_sell_price(client):
+    """收成仓正常+枯萎混合出售:先扣正常价,再扣枯萎打折价。"""
+    h = _reg(client, "mixed_sell")
+    _advance_term(client, h, (5, 8))
+    seed = _buy_seed(client, h, "seed_shuidao")
+    state = client.get("/v1/farm/state", headers=h).json()["data"]
+    pid = state["plots"][0]["plot_id"]
+
+    # 第一株正常收获(未枯萎):base6 × 肥力1.0 = 6
+    r = _sow(client, h, seed, pid)
+    assert r["code"] == 0, r
+    client.post("/v1/debug/grow", json={"plot_id": pid}, headers=h)
+    hv = client.post(f"/v1/farm/plots/{pid}/harvest", headers=h).json()
+    assert hv["code"] == 0 and hv["data"]["wilted"] is False
+    assert hv["data"]["yield"] == 6
+
+    # 第二株种下后推到冬季 → 枯萎 → 收割(6×0.5=3 劣质入仓)
+    seed2 = _buy_seed(client, h, "seed_shuidao")
+    r = _sow(client, h, seed2, pid)
+    assert r["code"] == 0, r
+    from app.models import Player, TermConfig
+    from app.services import world_service
+
+    with SessionLocal() as db:
+        terms = db.query(TermConfig).order_by(TermConfig.term_index).all()
+        accum = sum(t.duration_seconds for t in terms[:18])
+        u = db.query(User).filter(User.name == "mixed_sell").first()
+        player = db.query(Player).filter(Player.user_id == u.id).first()
+        world_service.set_world(db, player, accum=accum)
+    st = client.get("/v1/farm/state", headers=h).json()["data"]
+    assert next(p for p in st["plots"] if p["idx"] == 1)["crop"]["status"] == "wilted"
+    r = client.post(f"/v1/farm/plots/{pid}/harvest", headers=h).json()
+    assert r["code"] == 0 and r["data"]["wilted"] is True and r["data"]["yield"] == 3
+
+    storage = client.get("/v1/shop/storage", headers=h).json()["data"]["items"]
+    rice = next(i for i in storage if i["name"] == "水稻")
+    assert rice["quantity"] == 9 and rice["wilted_quantity"] == 3  # 6正常 + 3枯萎
+
+    # 冬季正常 14/枯萎 4;卖 7 先扣正常(6×14 + 1×4)= 88,剩余 0 正常 + 2 枯萎
+    r = client.post(
+        f"/v1/shop/crops/{seed['effect']['crop_id']}/sell",
+        json={"quantity": 7},
+        headers=h,
+    ).json()
+    assert r["code"] == 0, r
+    assert r["data"]["price"] == 88
+    assert r["data"]["wilted"] == 1
+    storage = client.get("/v1/shop/storage", headers=h).json()["data"]["items"]
+    rice = next(i for i in storage if i["name"] == "水稻")
+    assert rice["quantity"] == 2 and rice["wilted_quantity"] == 2
+
+    # 剩余 2 株枯萎全卖 = 2×4 = 8
+    r = client.post(
+        f"/v1/shop/crops/{seed['effect']['crop_id']}/sell",
+        json={"quantity": 2},
+        headers=h,
+    ).json()
+    assert r["code"] == 0, r
+    assert r["data"]["price"] == 8
+    assert r["data"]["wilted"] == 2
 
 
 # ---------- 6. 肥力减产 ----------

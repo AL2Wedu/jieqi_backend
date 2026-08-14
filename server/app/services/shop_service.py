@@ -32,6 +32,8 @@ from app.services import world_service
 SEASONS = {"spring": (1, 6), "summer": (7, 12), "autumn": (13, 18), "winter": (19, 24)}
 SEASON_NAMES = {"spring": "春", "summer": "夏", "autumn": "秋", "winter": "冬"}
 
+_WILTED_SELL_FACTOR = 0.3  # 枯萎劣质收成收购价系数(售价大打折扣)
+
 
 def _utcnow():
     return datetime.now(timezone.utc)
@@ -80,6 +82,11 @@ def _crop_price(crop: Crop, settings: ShopSettings, season: str) -> int:
     if maxv > 0:
         price = min(price, maxv)
     return price
+
+
+def _wilted_price(crop: Crop, settings: ShopSettings, season: str) -> int:
+    """枯萎劣质收成单株收购价 = 正常价 × 折扣系数(至少 1)。"""
+    return max(1, int(round(_crop_price(crop, settings, season) * _WILTED_SELL_FACTOR)))
 
 
 def ensure_shop(db: Session, player: Player) -> UserShop:
@@ -157,6 +164,11 @@ def shop_state(db: Session, player: Player) -> dict:
                 "sell_price": _crop_price(crop, settings, season),
                 "season": SEASON_NAMES.get(season, season),
                 "season_factor": (settings.season_effect or {}).get(season, 1.0),
+                # 客户端展示宜种/解锁徽标与种子图标所需（纯增量，向后兼容）
+                "art": crop.art or {},
+                "sow_window": crop.sow_window or {},
+                "unlock_level": crop.unlock_level or 0,
+                "unlock_exp": crop.unlock_exp or 0,
             }
         )
     db.commit()
@@ -245,11 +257,17 @@ def sell_crop(db: Session, player: Player, crop_id: str, quantity: int) -> dict:
         .filter(CropStorage.player_id == player.id, CropStorage.crop_id == cid)
         .first()
     )
-    have = row.quantity if row else 0
+    have = (row.quantity if row else 0) + (row.wilted_quantity if row else 0)
     if have < quantity:
         raise AppError("NOT_ENOUGH_CROP", f"收成仓不足(剩余 {have})", code=22007)
-    price = _crop_price(crop, settings, season) * quantity
-    row.quantity -= quantity
+    unit = _crop_price(crop, settings, season)
+    wilted_unit = _wilted_price(crop, settings, season)
+    # 先卖正常收成(正常价),不足再卖枯萎劣质收成(大打折价)
+    normal = min(row.quantity, quantity)
+    wilted = quantity - normal
+    row.quantity -= normal
+    row.wilted_quantity -= wilted
+    price = normal * unit + wilted * wilted_unit
     player.coins += price
     db.add(
         CoinTransaction(
@@ -261,9 +279,10 @@ def sell_crop(db: Session, player: Player, crop_id: str, quantity: int) -> dict:
         "crop_id": crop_id,
         "name": crop.name,
         "quantity": quantity,
+        "wilted": wilted,  # 本次卖出中枯萎劣质收成的数量
         "price": price,
-        "unit_price": price // quantity,
-        "storage_after": row.quantity,
+        "unit_price": price // quantity,  # 混合单价(正常与枯萎均价)
+        "storage_after": row.quantity + row.wilted_quantity,
         "coins_balance": player.coins,
     }
 
@@ -282,13 +301,17 @@ def storage(db: Session, player: Player) -> dict:
         {
             "crop_id": str(r.crop_id),
             "name": crops[r.crop_id].name if r.crop_id in crops else "?",
-            "quantity": r.quantity,
+            "quantity": r.quantity + r.wilted_quantity,  # 总数量(正常 + 枯萎劣质)
+            "wilted_quantity": r.wilted_quantity,  # 其中枯萎劣质收成的数量
             "sell_price": _crop_price(crops[r.crop_id], settings, season)
+            if r.crop_id in crops
+            else 0,
+            "wilted_sell_price": _wilted_price(crops[r.crop_id], settings, season)
             if r.crop_id in crops
             else 0,
             "season": SEASON_NAMES.get(season, season),
         }
         for r in rows
-        if r.quantity > 0
+        if r.quantity > 0 or r.wilted_quantity > 0
     ]
     return {"season": SEASON_NAMES.get(season, season), "items": items}
