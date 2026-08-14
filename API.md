@@ -126,6 +126,11 @@
 | 28 | GET | `/v1/pest/state` | 🔐 | 我的虫害状态(下次触发/进行中事件) |
 | 29 | POST | `/v1/farm/pest/{pest_id}/result` | 🔐 | 大虫害提交成绩(防作弊校验+奖惩) |
 | 30 | POST | `/v1/farm/pest/{pest_id}/drive-away` | 🔐 | 驱赶小虫害寄生目标 |
+| 31 | POST | `/v1/shop/guest/start` | 🔐 | 开一单 AI 客人议价(1 份收成) |
+| 32 | POST | `/v1/shop/guest/{session_id}/chat` | 🔐 | 跟客人对话一轮(deal=true 当场成交) |
+| 33 | POST | `/v1/shop/guest/{session_id}/accept` | 🔐 | 接受客人当前报价 → 成交结算 |
+| 34 | POST | `/v1/shop/guest/{session_id}/cancel` | 🔐 | 赶客放弃,不成交 |
+| 35 | GET | `/v1/shop/guest/{session_id}` | 🔐 | 会话快照(含消息历史,断线重进用) |
 
 ### 3.3 美术素材(3)
 
@@ -190,21 +195,22 @@
 | 77 | GET | `/v1/admin/shop/users/{player_id}/items` | 某用户商店商品 |
 | 78 | PUT | `/v1/admin/shop/users/{player_id}/items/{item_id}` | 覆盖商品(库存/买卖价) |
 | 79 | POST | `/v1/admin/shop/users/{player_id}/restock` | 手动补货 |
-| 80 | POST | `/v1/admin/shop/users/{player_id}/reset` | 重置商店 |
-| 81 | GET | `/v1/admin/ai/config` | AI 配置(密钥打码) |
-| 82 | PUT | `/v1/admin/ai/config` | 保存 AI 配置 |
-| 83 | POST | `/v1/admin/ai/test` | AI 连通性测试 |
-| 84 | GET | `/v1/admin/ai/usage` | 全服 AI 用量 |
-| 85 | GET | `/v1/admin/pest/config` | 虫害系统配置 |
-| 86 | PUT | `/v1/admin/pest/config` | 保存虫害配置 |
-| 87 | GET | `/v1/admin/pest/events` | 虫害事件记录 |
+| 88 | GET | `/v1/admin/guests` | AI 客人会话列表(可过滤状态,分页) |
+| 89 | POST | `/v1/admin/shop/users/{player_id}/reset` | 重置商店 |
+| 90 | GET | `/v1/admin/ai/config` | AI 配置(密钥打码) |
+| 91 | PUT | `/v1/admin/ai/config` | 保存 AI 配置 |
+| 92 | POST | `/v1/admin/ai/test` | AI 连通性测试 |
+| 93 | GET | `/v1/admin/ai/usage` | 全服 AI 用量 |
+| 94 | GET | `/v1/admin/pest/config` | 虫害系统配置 |
+| 95 | PUT | `/v1/admin/pest/config` | 保存虫害配置 |
+| 96 | GET | `/v1/admin/pest/events` | 虫害事件记录 |
 
 ### 3.6 WebSocket 与页面(2 WS + 3 页面)
 
 | # | 类型 | 路径 | 鉴权 | 说明 |
 |---|---|---|---|---|
-| 88 | WS | `/v1/ws?token=` | 🔐 | 玩家实时推送(节气+7 类事件) |
-| 89 | WS | `/v1/admin/logs?token=` | 👑 | 后端日志实时流(只读) |
+| 97 | WS | `/v1/ws?token=` | 🔐 | 玩家实时推送(节气+7 类事件) |
+| 98 | WS | `/v1/admin/logs?token=` | 👑 | 后端日志实时流(只读) |
 | — | GET | `/admin` | 页面 | 管理后台单页 |
 | — | GET | `/docs` | 页面 | OpenAPI 交互文档 |
 | — | GET | `/static/*` | 静态 | 美术素材/前端资源 |
@@ -482,6 +488,48 @@
 **错误:** `21005 CROP_NOT_FOUND` · `22007 NOT_ENOUGH_CROP`(仓内不足,HTTP 400)· `10001 INVALID_PARAMS`
 
 **注意事项:** 按当前季节价结算(秋 1.2 倍最赚/冬 0.9 倍最亏),金币写账本;**出售先扣正常收成(原价),不足再扣枯萎劣质收成(×0.3 大打折价)**。
+
+### 5.17 AI 客人议价出售(🔐,主玩法)
+
+玩家与 LLM 扮演的客人**自然语言讨价还价**卖收成(1 份/单);旧快速卖出(5.16)保留为兜底。
+
+**接口一览:**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/v1/shop/guest/start` | body `{crop_id}` → 随机客人 + 开场白 + 初始报价 |
+| POST | `/v1/shop/guest/{session_id}/chat` | body `{message}` → AI 回复一轮 |
+| POST | `/v1/shop/guest/{session_id}/accept` | 接受客人当前报价 → 成交结算 |
+| POST | `/v1/shop/guest/{session_id}/cancel` | 赶客,不成交 |
+| GET | `/v1/shop/guest/{session_id}` | 快照(含全部消息历史,断线重进) |
+
+**chat 响应(data)字段:**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `reply_text` | str | 客人回复(自然口语) |
+| `guest_name` | str | 客人名字(王奶奶/陈大厨/小美,随机) |
+| `mood` | str | `plain/happy/sad/confused`(服务端校验,非法兜底 plain) |
+| `offer` | int | 客人当前报价(**服务端校验后**:∈ [市场价×0.5, 市场价×1.5],越界截断) |
+| `deal` | bool | 是否接受玩家报价成交;`false` → 对话继续 |
+| `status` | str | `bargaining/done/closed/cancelled` |
+
+**状态机:**
+
+```
+bargaining --deal=true(chat 内)或 accept--> done(按校验后 offer 结算)
+bargaining --turns ≥ max_turns(默认 8)--> closed(不自动成交)
+bargaining --cancel--> cancelled
+```
+
+**结算:** 复用 `_settle_sale`(先扣正常后扣枯萎,枯萎按 offer×wilted_ratio 折价);金币 + `coin_transactions`(reason=`guest_sell:<guest_key>`)。
+
+**成本控制:** 每玩家同时最多 1 个活跃会话(`29001 GUEST_BUSY`);start 冷却 `guest.cooldown_seconds`(默认 30s,`29002`);`guest.max_turns` 轮次上限;历史截断 `guest.context_messages`(默认 12 条);AI 用量自动进 `ai_usage`。
+
+**错误:** `29001`-`29007`(见错误码表)· `22007 NOT_ENOUGH_CROP`(收成仓无货)· `21005 CROP_NOT_FOUND`
+
+**客人模板:** `server/data/guests.json`(3 个:王奶奶 0.6-0.9 / 陈大厨 0.95-1.3 / 小美 0.75-1.05,心理价位 = 市场价 × 随机系数,会话创建时定死)。管理后台可调 `guest.*` 配置与开关。
+
 ---
 
 ## 6. 扩展玩法端点详解
@@ -1249,6 +1297,13 @@ GET /v1/art/version                                 # 版本:version/crops/terms
 |---|---|---|---|
 | 30001 | ADMIN_BAD_CREDENTIALS | 401 | 管理员账号/密码错误 |
 | 30002 | ADMIN_DISABLED | 403 | 管理后台未启用(ADMIN_ENABLED=false) |
+| 29001 | GUEST_BUSY | 400 | 已有活跃的 AI 客人会话 |
+| 29002 | GUEST_COOLDOWN | 400 | start 冷却中(guest.cooldown_seconds,默认 30s) |
+| 29003 | GUEST_NOT_FOUND | 404 | 会话不存在或不属于该玩家 |
+| 29004 | GUEST_CLOSED | 400 | 会话已结束(done/closed/cancelled) |
+| 29005 | GUEST_AI_RESPONSE | 502 | AI 回复无法解析/校验失败(兜底后仍失败) |
+| 29006 | GUEST_DISABLED | 403 | AI 客人功能未开放(guest.enabled=false) |
+| 29007 | GUEST_NO_OFFER | 400 | 客人还没报价,无法 accept |
 | 90000 | INTERNAL_ERROR | 500 | 未捕获异常(兜底) |
 | 90001 | DEBUG_DISABLED | 403 | 调试接口未开启(DEBUG_ENABLED=false) |
 

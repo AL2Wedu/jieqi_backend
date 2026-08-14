@@ -17,6 +17,7 @@ from app.api import (
     player,
     quests,
     shop,
+    shop_guest,
     social,
 )
 from app.core.db import SessionLocal
@@ -31,6 +32,7 @@ api.include_router(player.router)
 api.include_router(calendar.router)
 api.include_router(farm.router)
 api.include_router(shop.router)
+api.include_router(shop_guest.router)
 api.include_router(quests.router)
 api.include_router(social.router)
 api.include_router(achievements.router)

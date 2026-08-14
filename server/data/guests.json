@@ -1,0 +1,23 @@
+[
+  {
+    "key": "thrifty_granny",
+    "name": "王奶奶",
+    "personality": "抠门,爱挑刺,反复压价,但被夸两句会不好意思",
+    "offer_range": [0.6, 0.9],
+    "opening": "小伙子,你这{菜}看着还行,便宜点呗?"
+  },
+  {
+    "key": "foodie_chef",
+    "name": "陈大厨",
+    "personality": "识货爽快,好菜愿意出高价,不爱磨叽",
+    "offer_range": [0.95, 1.3],
+    "opening": "这{菜}新鲜!我出个实在价,成不成?"
+  },
+  {
+    "key": "curious_student",
+    "name": "小美",
+    "personality": "犹豫,爱问东问西,容易被说服",
+    "offer_range": [0.75, 1.05],
+    "opening": "请问这个{菜}怎么卖呀?"
+  }
+]

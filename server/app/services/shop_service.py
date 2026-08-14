@@ -240,6 +240,48 @@ def buy(db: Session, player: Player, item_id: str, quantity: int) -> dict:
     }
 
 
+def _settle_sale(
+    db: Session,
+    player: Player,
+    crop: Crop,
+    quantity: int,
+    unit_price: int,
+    wilted_unit_price: int,
+    reason: str,
+) -> dict:
+    """公共结算:扣收成仓(先正常后枯萎)→ 加金币 → 账本。
+
+    - 市场快速卖出与 AI 客人议价共用;unit_price 为正常收成单价,wilted_unit_price 为枯萎劣质单价
+    - 返回与 sell_crop 一致的结算详情
+    """
+    row = (
+        db.query(CropStorage)
+        .filter(CropStorage.player_id == player.id, CropStorage.crop_id == crop.id)
+        .first()
+    )
+    have = (row.quantity if row else 0) + (row.wilted_quantity if row else 0)
+    if have < quantity:
+        raise AppError("NOT_ENOUGH_CROP", f"收成仓不足(剩余 {have})", code=22007)
+    normal = min(row.quantity, quantity)
+    wilted = quantity - normal
+    row.quantity -= normal
+    row.wilted_quantity -= wilted
+    price = normal * unit_price + wilted * wilted_unit_price
+    player.coins += price
+    db.add(CoinTransaction(player_id=player.id, amount=price, reason=reason))
+    db.commit()
+    return {
+        "crop_id": str(crop.id),
+        "name": crop.name,
+        "quantity": quantity,
+        "wilted": wilted,
+        "price": price,
+        "unit_price": price // quantity,  # 混合单价(正常与枯萎均价)
+        "storage_after": (row.quantity if row else 0) + (row.wilted_quantity if row else 0),
+        "coins_balance": player.coins,
+    }
+
+
 def sell_crop(db: Session, player: Player, crop_id: str, quantity: int) -> dict:
     if quantity < 1:
         raise AppError("INVALID_PARAMS", "出售数量至少为 1", code=10001)
@@ -252,39 +294,11 @@ def sell_crop(db: Session, player: Player, crop_id: str, quantity: int) -> dict:
         raise AppError("CROP_NOT_FOUND", "作物不存在", code=21005)
     settings = get_settings(db)
     season = current_season(db, player)
-    row = (
-        db.query(CropStorage)
-        .filter(CropStorage.player_id == player.id, CropStorage.crop_id == cid)
-        .first()
-    )
-    have = (row.quantity if row else 0) + (row.wilted_quantity if row else 0)
-    if have < quantity:
-        raise AppError("NOT_ENOUGH_CROP", f"收成仓不足(剩余 {have})", code=22007)
     unit = _crop_price(crop, settings, season)
     wilted_unit = _wilted_price(crop, settings, season)
-    # 先卖正常收成(正常价),不足再卖枯萎劣质收成(大打折价)
-    normal = min(row.quantity, quantity)
-    wilted = quantity - normal
-    row.quantity -= normal
-    row.wilted_quantity -= wilted
-    price = normal * unit + wilted * wilted_unit
-    player.coins += price
-    db.add(
-        CoinTransaction(
-            player_id=player.id, amount=price, reason=f"shop_sell:{crop.name}"
-        )
+    return _settle_sale(
+        db, player, crop, quantity, unit, wilted_unit, f"shop_sell:{crop.name}"
     )
-    db.commit()
-    return {
-        "crop_id": crop_id,
-        "name": crop.name,
-        "quantity": quantity,
-        "wilted": wilted,  # 本次卖出中枯萎劣质收成的数量
-        "price": price,
-        "unit_price": price // quantity,  # 混合单价(正常与枯萎均价)
-        "storage_after": row.quantity + row.wilted_quantity,
-        "coins_balance": player.coins,
-    }
 
 
 def storage(db: Session, player: Player) -> dict:

@@ -557,3 +557,48 @@ async def logs_ws(websocket: WebSocket, token: str = Query(default="")):
                 last_size = size
     except WebSocketDisconnect:
         pass
+
+
+@router.get("/guests")
+def list_guests(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    status: str | None = Query(default=None, description="过滤状态:bargaining/done/closed/cancelled"),
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """AI 客人会话列表(玩家/菜/状态/报价/轮次),管理端可观测。"""
+    from app.models import AiGuestSession, Player, User, Crop
+
+    qs = (
+        db.query(AiGuestSession, Player, User, Crop)
+        .join(Player, Player.id == AiGuestSession.player_id)
+        .join(User, User.id == Player.user_id)
+        .join(Crop, Crop.id == AiGuestSession.crop_id)
+    )
+    if status:
+        qs = qs.filter(AiGuestSession.status == status)
+    total = qs.count()
+    rows = (
+        qs.order_by(AiGuestSession.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    items = [
+        {
+            "session_id": str(s.id),
+            "player_name": u.name,
+            "crop_name": c.name,
+            "guest_name": s.guest_name,
+            "status": s.status,
+            "offer": s.offer,
+            "base_price": s.base_price,
+            "turns": s.turns,
+            "mood": s.last_mood,
+            "created_at": s.created_at.isoformat(timespec="seconds"),
+            "finished_at": s.finished_at.isoformat(timespec="seconds") if s.finished_at else None,
+        }
+        for s, p, u, c in rows
+    ]
+    return ok({"items": items, "page": page, "page_size": page_size, "total": total})

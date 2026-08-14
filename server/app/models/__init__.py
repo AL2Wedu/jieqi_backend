@@ -19,6 +19,7 @@ from sqlalchemy import (
     JSON,
     SmallInteger,
     String,
+    Text,
     text,
     UniqueConstraint,
     Uuid,
@@ -467,4 +468,42 @@ class PestTarget(Base):
     )
     ready_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))  # 到点摧毁
     status: Mapped[int] = mapped_column(SmallInteger, default=0)  # 0寄生中 1已驱赶 2已摧毁
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class AiGuestSession(Base):
+    """AI 客人议价会话:一次会话卖 1 份收成,多轮讨价还价。"""
+
+    __tablename__ = "ai_guest_sessions"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), index=True)
+    crop_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("crops.id"))
+    guest_key: Mapped[str] = mapped_column(String(32))
+    guest_name: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16), default="bargaining")  # bargaining/done/closed/cancelled
+    base_price: Mapped[int] = mapped_column(Integer)  # 市场价快照(会话创建时)
+    wilted_ratio: Mapped[float] = mapped_column(Float, default=0.2)  # 枯萎劣质收成的折扣比例(结算用)
+    offer: Mapped[int] = mapped_column(Integer, default=0)  # AI 当前报价(服务端校验后)
+    target_min: Mapped[int] = mapped_column(Integer, default=0)  # AI 心理价位下沿(会话内定死)
+    target_max: Mapped[int] = mapped_column(Integer, default=0)  # AI 心理价位上沿
+    turns: Mapped[int] = mapped_column(Integer, default=0)
+    last_mood: Mapped[str] = mapped_column(String(16), default="plain")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utcnow, onupdate=utcnow
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class AiGuestMessage(Base):
+    """AI 客人会话消息:全部轮次持久化,注入上下文用最近 N 条。"""
+
+    __tablename__ = "ai_guest_messages"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    session_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("ai_guest_sessions.id"), index=True)
+    role: Mapped[str] = mapped_column(String(8))  # user / guest
+    content: Mapped[str] = mapped_column(Text)
+    reply: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # guest 行:完整回复 JSON
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

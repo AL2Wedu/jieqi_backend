@@ -23,6 +23,7 @@ PREFIX = {
     "calendar.py": "/calendar",
     "farm.py": "/farm",
     "shop.py": "/shop",
+    "shop_guest.py": "/shop/guest",
     "quests.py": "/quests",
     "social.py": "/social",
     "achievements.py": "/achievements",
