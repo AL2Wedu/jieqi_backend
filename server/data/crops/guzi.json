@@ -4,7 +4,7 @@
   "name": "谷子",
   "category": "谷物",
   "sort_order": 3,
-  "sow_window": { "type": "term", "start": 5, "end": 8, "grace": 1 },
+  "sow_window": { "type": "term", "start": 5, "end": 9, "grace": 1 },
   "grow_seconds": 240,
   "yield_base": 5,
   "base_price": 18,
@@ -13,7 +13,7 @@
   "settings": {
     "wither_seasons": ["winter"],
     "fast_growth_seasons": { "summer": 1.5 },
-    "water_need": { "min": 40, "ideal": 70 },
+    "water_need": { "min": 30, "ideal": 60 },
     "fertility_need": 1,
     "max_value": 26
   },

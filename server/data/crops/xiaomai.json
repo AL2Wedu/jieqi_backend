@@ -12,10 +12,10 @@
   "unlock_exp": 10,        // 解锁经验;0 = 不限制
   "settings": {
     "wither_seasons": ["summer"],
-    "fast_growth_seasons": { "spring": 1.5 },
-    "water_need": { "min": 40, "ideal": 70 },
+    "fast_growth_seasons": { "autumn": 1.5 },
+    "water_need": { "min": 50, "ideal": 80 },
     "fertility_need": 2,
     "max_value": 30
   },
-  "note": "秋播越冬,春季返青加速,夏天收割"
+  "note": "秋播速收,秋季加速,入夏未收则枯萎(华北小麦耗水≈玉米,需水高于谷子)"
 }

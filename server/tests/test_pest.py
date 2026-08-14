@@ -25,10 +25,10 @@ def _reg(client, name):
 
 def _plant(client, h, n=1):
     """种 n 株水稻,返回 plot_id 列表。"""
-    # 先推进节气到水稻宜种窗(4-8 谷雨~立秋):每次 authed 请求会同步玩家世界
+    # 先推进节气到水稻宜种窗(5清明~8小满):每次 authed 请求会同步玩家世界
     for _ in range(30):
         cal = client.get("/v1/calendar/current", headers=h).json()["data"]
-        if 4 <= cal["term_index"] <= 8:
+        if 5 <= cal["term_index"] <= 8:
             break
         client.post("/v1/debug/term/advance", headers=h)
     shop = client.get("/v1/shop/items", headers=h).json()["data"]["items"]

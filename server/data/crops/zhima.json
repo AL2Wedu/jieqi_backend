@@ -4,7 +4,7 @@
   "name": "芝麻",
   "category": "油料",
   "sort_order": 10,
-  "sow_window": { "type": "term", "start": 5, "end": 8, "grace": 1 },
+  "sow_window": { "type": "term", "start": 6, "end": 9, "grace": 1 },
   "grow_seconds": 280,
   "yield_base": 4,
   "base_price": 32,

@@ -4,7 +4,7 @@
   "name": "荞麦",
   "category": "谷物",
   "sort_order": 5,
-  "sow_window": { "type": "term", "start": 6, "end": 9, "grace": 1 },
+  "sow_window": { "type": "term", "start": 13, "end": 14, "grace": 1 },
   "grow_seconds": 200,
   "yield_base": 5,
   "base_price": 16,

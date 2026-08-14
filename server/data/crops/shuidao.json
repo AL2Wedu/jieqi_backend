@@ -4,7 +4,7 @@
   "name": "水稻",
   "category": "谷物",
   "sort_order": 1,
-  "sow_window": { "type": "term", "start": 4, "end": 8, "grace": 1 },
+  "sow_window": { "type": "term", "start": 5, "end": 8, "grace": 1 },
   "grow_seconds": 300,
   "yield_base": 6,
   "base_price": 20,

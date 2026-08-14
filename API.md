@@ -1272,10 +1272,10 @@ def call(method, path, token=None, body=None):
 reg = call("POST", "/auth/register", body={"name": "demo01", "password": "pass123456"})
 token = reg["data"]["token"]
 
-# 2. 推进节气到水稻宜种窗(4-8;正式环境等节气自然轮转)
+# 2. 推进节气到水稻宜种窗(5-8;正式环境等节气自然轮转)
 for _ in range(30):
     cal = call("GET", "/calendar/current", token=token)["data"]
-    if 4 <= cal["term_index"] <= 8: break
+    if 5 <= cal["term_index"] <= 8: break
     call("POST", "/debug/term/advance", token=token)
 
 # 3. 买水稻种子(种子道具的 effect.crop_id 就是播种目标)

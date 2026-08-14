@@ -171,7 +171,7 @@ def test_water_decay_and_stall():
 def test_wither_on_season(client):
     """玩家世界进入冬季 → 未收获水稻枯萎(plot 变空 + wither_events 提示)。"""
     h = _reg(client, "wither_rice")
-    _advance_term(client, h, (4, 8))
+    _advance_term(client, h, (5, 8))  # 水稻宜种窗(清明~小满)
     seed = _buy_seed(client, h, "seed_shuidao")
     state = client.get("/v1/farm/state", headers=h).json()["data"]
     r = _sow(client, h, seed, state["plots"][0]["plot_id"])

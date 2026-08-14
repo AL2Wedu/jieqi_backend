@@ -144,10 +144,10 @@ def test_harvest_exp_and_levelup(client):
     token = r["data"]["token"]
     h = _auth(token)
 
-    # 推进节气到水稻宜种窗(4-8)
+    # 推进节气到水稻宜种窗(5清明-8小满,含宽限期 9)
     for _ in range(30):
         cal = client.get("/v1/calendar/current", headers=h).json()["data"]
-        if 4 <= cal["term_index"] <= 8:
+        if 5 <= cal["term_index"] <= 8:
             break
         client.post("/v1/debug/term/advance", headers=h)
 

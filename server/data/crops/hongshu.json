@@ -13,9 +13,9 @@
   "settings": {
     "wither_seasons": ["winter"],
     "fast_growth_seasons": { "summer": 1.4 },
-    "water_need": { "min": 45, "ideal": 75 },
-    "fertility_need": 2,
+    "water_need": { "min": 40, "ideal": 70 },
+    "fertility_need": 1,
     "max_value": 30
   },
-  "note": "周期长产量高"
+  "note": "周期长产量高,耐旱耐瘠"
 }
