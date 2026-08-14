@@ -155,7 +155,7 @@
 
 **配置入口**:植物设定文件(窗/解锁/加速/需水/需肥/枯萎,见 2.4);管理后台可种/清/改生长、改肥力/锁定。
 
-**相关 API**:`GET /v1/farm/state`、`POST /v1/farm/plots/{id}/sow|water|harvest|clear`、`GET /v1/admin/plantings`、管理后台地块控制 5 端点
+**相关 API**:`GET /v1/farm/state`、`POST /v1/farm/plots/{id}/sow|water|harvest|clear|weed-clear`、`GET /v1/admin/plantings`、管理后台地块控制 5 端点
 
 ## 2.4 植物设定文件(JSONC 事实源)
 
@@ -248,9 +248,11 @@
 
 **运作方式**:每用户世界,每个节气内**随机一个时刻**生长一次(世界秒调度 `weed_scheduled_accum`;离线期间世界推进也会触发)。到点:清除旧杂草 → 随机覆盖最多 `weed.max_plots`(默认 3)个地块(优先有作物的)→ 该地块作物生长速度 × `weed.slow_factor`(默认 0.5)。杂草存活不超过一个节气(下一次生长重新随机)。WS 推 `weed_growth`。
 
+**清除杂草**:玩家可对**单个地块** `POST /v1/farm/plots/{id}/weed-clear` 除草(只清所选格,原无杂草幂等返回 `cleared=false`);管理/调试可一次清全部。清除后该格作物生长速率恢复,但下个节气可能重新长。
+
 **配置入口**:`game_config: weed.*`(enabled/slow_factor/max_plots);调试接口强制触发/清除。
 
-**相关 API**:farm state 的 `plots[].weeded` 与 `weed_events`、`POST /v1/debug/weed/trigger|clear`
+**相关 API**:farm state 的 `plots[].weeded` 与 `weed_events`、`POST /v1/farm/plots/{id}/weed-clear`(单格除草)、`POST /v1/debug/weed/trigger|clear`
 
 ## 2.13 美术素材管线
 

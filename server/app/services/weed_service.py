@@ -7,9 +7,11 @@
 - 配置走 game_config(管理后台可改):weed.enabled / weed.slow_factor / weed.max_plots
 """
 import random
+import uuid
 
 from sqlalchemy.orm import Session
 
+from app.core.errors import AppError
 from app.models import CropInstance, Farm, GameConfig, Plot, Player, TermConfig
 from app.services import world_service
 
@@ -149,6 +151,29 @@ def clear_weeds(db: Session, player: Player) -> dict:
         )
         db.commit()
     return {"cleared": n}
+
+
+def clear_weed(db: Session, player: Player, plot_id: str) -> dict:
+    """清除单个地块的杂草(玩家操作,只清所选格)。
+
+    - 地块不存在 / 不属于我 → 21001 PLOT_NOT_FOUND
+    - 该格原本无杂草 → 幂等返回 cleared=False(不报错)
+    """
+    try:
+        plot_uuid = uuid.UUID(plot_id)
+    except ValueError:
+        raise AppError("PLOT_NOT_FOUND", "地块不存在", code=21001)
+    plot = db.query(Plot).filter(Plot.id == plot_uuid).first()
+    if not plot:
+        raise AppError("PLOT_NOT_FOUND", "地块不存在", code=21001)
+    farm = db.query(Farm).filter(Farm.id == plot.farm_id).first()
+    if farm.owner_id != player.id:
+        raise AppError("PLOT_NOT_FOUND", "地块不存在", code=21001)
+    was_weeded = bool(plot.weeded)
+    if was_weeded:
+        plot.weeded = False
+        db.commit()
+    return {"plot_id": plot_id, "idx": plot.idx, "cleared": was_weeded}
 
 
 def weeded_plots(db: Session, player: Player) -> list[Plot]:

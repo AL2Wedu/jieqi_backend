@@ -94,3 +94,49 @@ def test_weed_replaces_next_round(client):
     weeded_now = {p["idx"] for p in st["plots"] if p["weeded"]}
     assert weeded_now == second  # 旧杂草已被清除,只剩新一轮
     assert len(weeded_now) <= 3
+
+
+def test_weed_clear_single_plot(client):
+    """POST /v1/farm/plots/{id}/weed-clear:只清所选格的杂草,不影响其他格。"""
+    h = _reg(client, "weed_clear1")
+    r = client.post("/v1/debug/weed/trigger", headers=h).json()
+    targets = r["data"]["targets"]
+    assert len(targets) >= 2  # 至少覆盖 2 格,验证"只清一格"
+    target = targets[0]
+
+    # 清掉选中的格
+    r = client.post(f"/v1/farm/plots/{target['plot_id']}/weed-clear", headers=h).json()
+    assert r["code"] == 0, r
+    assert r["data"]["cleared"] is True and r["data"]["idx"] == target["idx"]
+
+    st = client.get("/v1/farm/state", headers=h).json()["data"]
+    weeded = {p["idx"] for p in st["plots"] if p["weeded"]}
+    assert target["idx"] not in weeded  # 所选格已清
+    assert weeded == {t["idx"] for t in targets[1:]}  # 其他格仍带杂草
+
+    # 幂等:再清一次原本已无杂草的格 → cleared=False
+    r = client.post(f"/v1/farm/plots/{target['plot_id']}/weed-clear", headers=h).json()
+    assert r["code"] == 0 and r["data"]["cleared"] is False
+
+
+def test_weed_clear_foreign_or_missing_plot(client):
+    """清除不属于自己的地块 / 不存在的地块 → 21001 PLOT_NOT_FOUND。"""
+    h = _reg(client, "weed_clear2")
+    h_other = _reg(client, "weed_clear3")
+    # 他人地块触发杂草
+    client.post("/v1/debug/weed/trigger", headers=h_other).json()
+    other = client.get("/v1/farm/state", headers=h_other).json()["data"]
+    foreign_plot = next(p["plot_id"] for p in other["plots"] if p["weeded"])
+
+    r = client.post(f"/v1/farm/plots/{foreign_plot}/weed-clear", headers=h).json()
+    assert r["code"] == 21001 and r["error_code"] == "PLOT_NOT_FOUND", r
+
+    # 不存在的地块
+    r = client.post(
+        f"/v1/farm/plots/{uuid.uuid4()}/weed-clear", headers=h
+    ).json()
+    assert r["code"] == 21001 and r["error_code"] == "PLOT_NOT_FOUND", r
+
+    # 非法 UUID
+    r = client.post("/v1/farm/plots/not-a-uuid/weed-clear", headers=h).json()
+    assert r["code"] == 21001 and r["error_code"] == "PLOT_NOT_FOUND", r

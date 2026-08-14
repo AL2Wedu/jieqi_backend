@@ -85,7 +85,7 @@
 
 ---
 
-## 3. 完整端点索引(88 REST/WS + 3 页面)
+## 3. 完整端点索引(89 REST/WS + 3 页面)
 
 ### 3.1 玩家端基础(13)
 
@@ -102,11 +102,12 @@
 | 9 | POST | `/v1/farm/plots/{plot_id}/water` | 🔐 | 浇水(水分补满,重新计时衰减) |
 | 10 | POST | `/v1/farm/plots/{plot_id}/harvest` | 🔐 | 收获(入收成仓,不直接给金币) |
 | 11 | POST | `/v1/farm/plots/{plot_id}/clear` | 🔐 | 铲除(移除当前作物,地块可再种) |
-| 12 | GET | `/v1/shop/state` | 🔐 | 我的商店(商品+库存+当前季节与倍率) |
-| 13 | GET | `/v1/shop/items` | 🔐 | 商店商品列表(简版) |
-| 14 | POST | `/v1/shop/items/{item_id}/buy` | 🔐 | 购买道具(扣金币,写账本) |
-| 15 | GET | `/v1/shop/storage` | 🔐 | 收成仓(数量 + 当前季节卖价) |
-| 16 | POST | `/v1/shop/crops/{crop_id}/sell` | 🔐 | 出售收成(按当前季节价结算金币) |
+| 12 | POST | `/v1/farm/plots/{plot_id}/weed-clear` | 🔐 | 清除单个地块的杂草(只清所选格) |
+| 13 | GET | `/v1/shop/state` | 🔐 | 我的商店(商品+库存+当前季节与倍率) |
+| 14 | GET | `/v1/shop/items` | 🔐 | 商店商品列表(简版) |
+| 15 | POST | `/v1/shop/items/{item_id}/buy` | 🔐 | 购买道具(扣金币,写账本) |
+| 16 | GET | `/v1/shop/storage` | 🔐 | 收成仓(数量 + 当前季节卖价) |
+| 17 | POST | `/v1/shop/crops/{crop_id}/sell` | 🔐 | 出售收成(按当前季节价结算金币) |
 
 ### 3.2 扩展玩法(13)
 
@@ -429,6 +430,16 @@
 **错误:** `21001 PLOT_NOT_FOUND` · `21004 PLOT_EMPTY`
 
 **注意事项:** 铲除 = 移除当前作物(无产量),地块立即可再种;枯萎(冻死)作物**占用地块**,需铲除或收割后才能再种。
+
+### 5.11b POST /v1/farm/plots/{plot_id}/weed-clear — 清除单格杂草(🔐)
+
+**路径参数:** `plot_id` — 地块 UUID(从 farm/state 获取)。
+
+**响应(data):** `{ "plot_id": "...", "idx": 1-20, "cleared": bool }`(`cleared=true`=该格原本有杂草且已清除;`false`=原本无杂草,幂等无操作)
+
+**错误:** `21001 PLOT_NOT_FOUND`(地块不存在/不属于我)
+
+**注意事项:** ① 只清**所选格**的杂草,不影响其他地块;② 清除后该格作物不再受杂草减速(生长速率恢复);③ 后续节气的杂草生长会重新随机,清不干净属正常(杂草系统见 README 2.x)。
 
 ### 5.12 GET /v1/shop/state — 我的商店(🔐)
 
