@@ -237,12 +237,19 @@
 
 **运作方式**:每用户隔离调度 —— 平均每 `window_terms`(默认 2)个节气触发 `events_per_window`(默认 3)次,间隔随机化(0.5~1.5×均值)。到点经 WS 推送给该玩家,已有进行中事件则顺延。
 
+**节气/季节驱动(依据真实农时)**:
+- **活跃窗口 `pest.active_terms`**(默认 **惊蛰~霜降** 3~18):窗口外(立冬~惊蛰前,含冬季)害虫越冬休眠,**完全不排虫** —— 冬天没有虫子。
+- **季节频率 `pest.season_frequency`**:触发间隔 = 基准均值 ÷ 倍率。盛夏(夏 freq 1.5,间隔缩短,**虫害最频繁**)、初春(春 freq 0.6,刚复苏、稀疏)、秋(0.8 回落)、冬(0.0)。
+- **季节大小虫比例 `pest.season_big_ratio`**:盛夏高温高湿**大虫灾最多**(0.5,如蝗灾/粘虫爆发期),春 0.3、秋 0.2 大虫害少,冬 0。
+
 - **大虫害**(音游对抗):WS 广播含音游时长 → 前端游玩后提交成绩 → **防作弊**:提交耗时 ≥ 时长 × `min_elapsed_factor`(默认 0.6),过快直接拒绝(`PEST_RESULT_TOO_FAST`)→ 达标(score/max ≥ `pass_ratio` 0.6)发奖励(金币+随机道具);不达标按 miss//2 个随机地块寄生小虫害
 - **小虫害**(寄生):1~5 个随机地块(有作物的)各挂倒计时(按生长阶段,苗期 120s/生长期 90s/成熟 60s,可配)→ 到点**摧毁作物**;玩家可驱赶(倒计时结束前驱赶成功则作物保住)
 
-**配置入口**:管理后台"虫害设置"(pest.* 全部可调:enabled/频率/大虫害参数/阶段倒计时);调试接口可强制触发/清除。
+**离线应对**:触发循环在 WS 主循环里,玩家**不在线不产生虫害**。重新上线时做**离线补偿**(`sync_offline`):把离线期间错过/过期的排程**顺延到未来**,不会"一上线就遭虫灾";若回归时正处于非活跃窗(冬季/早春)则直接清空排程不排虫。
 
-**相关 API**:`GET /v1/pest/state`、`POST /v1/farm/pest/{id}/result|drive-away`、`GET/PUT /v1/admin/pest/config`、`GET /v1/admin/pest/events`、`POST /v1/debug/pest/trigger|clear`
+**配置入口**:管理后台"虫害设置"(pest.* 全部可调:enabled/频率/活跃窗口/季节频率/季节大小虫比例/大虫害参数/阶段倒计时);调试接口可强制触发/清除。
+
+**相关 API**:`GET /v1/pest/state`(含 `season`/`pest_active`)、`POST /v1/farm/pest/{id}/result|drive-away`、`GET/PUT /v1/admin/pest/config`、`GET /v1/admin/pest/events`、`POST /v1/debug/pest/trigger|clear`
 
 ## 2.12 杂草系统
 

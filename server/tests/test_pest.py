@@ -5,6 +5,8 @@ from datetime import datetime, timedelta, timezone
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.db import SessionLocal
+from app.core.utils import ensure_aware
 from app.main import app
 from app.services import pest_service
 
@@ -77,6 +79,28 @@ def _backdate_target(client, h, pest_id, plot_id, seconds):
         db.commit()
 
 
+def _player(db, name):
+    from app.models import Player as P
+    from app.models import User
+
+    u = db.query(User).filter(User.name == name).first()
+    return db.query(P).filter(P.user_id == u.id).first()
+
+
+def _set_world_term(client, h, name, term_idx):
+    """把玩家世界推到指定节气起点(虫害季节/窗口测试用)。"""
+    from app.core.db import SessionLocal
+    from app.models import TermConfig
+    from app.services import world_service
+
+    with SessionLocal() as db:
+        terms = db.query(TermConfig).order_by(TermConfig.term_index).all()
+        accum = sum(t.duration_seconds for t in terms if t.term_index < term_idx)
+        player = _player(db, name)
+        world_service.set_world(db, player, accum=accum)
+    client.get("/v1/calendar/current", headers=h)  # 触发一次同步,刷新世界
+
+
 def test_pest_config_admin(client):
     admin = client.post(
         "/v1/admin/login", json={"username": "admin", "password": "admin123"}
@@ -96,6 +120,11 @@ def test_pest_config_admin(client):
         2: 90,
         3: 60,
     }
+    # 节气/季节驱动配置默认值
+    at = cfg["pest.active_terms"]
+    assert int(at["start"]) == 3 and int(at["end"]) == 18  # 惊蛰~霜降
+    assert cfg["pest.season_frequency"]["summer"] == 1.5  # 盛夏最频繁
+    assert cfg["pest.season_big_ratio"]["summer"] == 0.5  # 盛夏大虫灾最多
     # 保存
     r = client.put(
         "/v1/admin/pest/config",
@@ -258,3 +287,112 @@ def test_big_pest_penalty(client):
     assert len(st["active_small"]) == 2
     for t in st["active_small"]:
         assert t["plot_id"] in plots
+
+
+# ---------- 节气/季节驱动 + 离线补偿 ----------
+
+def test_no_pest_in_winter(client):
+    """冬季(立冬~大寒)不排虫:is_due 恒 False,状态标记非活跃,回归补偿清空排程。"""
+    h = _reg(client, "pest_winter")
+    _plant(client, h, n=2)
+    _set_world_term(client, h, "pest_winter", 19)  # 立冬
+
+    with SessionLocal() as db:
+        player = _player(db, "pest_winter")
+        # 即便排程已过期也不触发(冬天没有虫子)
+        player.next_pest_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        db.commit()
+        assert pest_service.is_due(db, player) is False
+        st = pest_service.player_state(db, player)
+        assert st["season"] == "winter" and st["pest_active"] is False
+        # 离线回归:非活跃窗口 → 清空排程
+        pest_service.sync_offline(db, player)
+        assert player.next_pest_at is None
+
+
+def test_no_pest_early_spring_boundary(client):
+    """活跃窗口边界:雨水(2)无虫,惊蛰(3)起有虫。"""
+    h = _reg(client, "pest_boundary")
+    _plant(client, h, n=1)
+    _set_world_term(client, h, "pest_boundary", 2)  # 雨水(惊蛰前,未复苏)
+    with SessionLocal() as db:
+        player = _player(db, "pest_boundary")
+        player.next_pest_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        db.commit()
+        assert pest_service.is_due(db, player) is False
+    _set_world_term(client, h, "pest_boundary", 3)  # 惊蛰(万物复苏,虫害开始)
+    with SessionLocal() as db:
+        player = _player(db, "pest_boundary")
+        player.next_pest_at = datetime.now(timezone.utc) - timedelta(hours=1)
+        db.commit()
+        assert pest_service.is_due(db, player) is True
+        st = pest_service.player_state(db, player)
+        assert st["season"] == "spring" and st["pest_active"] is True
+
+
+def test_offline_return_defers_pest(client):
+    """离线回归:错过排程顺延到未来,不立即触发。"""
+    h = _reg(client, "pest_offline")
+    _plant(client, h, n=1)
+    _set_world_term(client, h, "pest_offline", 9)  # 芒种(夏季活跃窗)
+
+    with SessionLocal() as db:
+        player = _player(db, "pest_offline")
+        player.next_pest_at = datetime.now(timezone.utc) - timedelta(hours=3)
+        db.commit()
+        # 未补偿:会立即触发(离线期间错过)
+        assert pest_service.is_due(db, player) is True
+        # 回归补偿:顺延到未来完整间隔,不再立即突袭
+        pest_service.sync_offline(db, player)
+        assert player.next_pest_at is not None
+        assert ensure_aware(player.next_pest_at) > datetime.now(timezone.utc) + timedelta(seconds=1)
+        assert pest_service.is_due(db, player) is False
+
+
+def test_season_frequency_interval(client, monkeypatch):
+    """夏季触发间隔短于春季(频率倍率 1.5 vs 0.6)。"""
+    h = _reg(client, "pest_season")
+    _plant(client, h, n=1)
+    monkeypatch.setattr("app.services.pest_service.random.uniform", lambda a, b: 1.0)
+
+    from app.core.utils import ensure_aware
+
+    def _interval(term_idx):
+        _set_world_term(client, h, "pest_season", term_idx)
+        with SessionLocal() as db:
+            player = _player(db, "pest_season")
+            now = datetime.now(timezone.utc)
+            pest_service.schedule_next(db, player, now)
+            return (ensure_aware(player.next_pest_at) - now).total_seconds()
+
+    spring = _interval(4)  # 春分 spring 0.6 → 间隔拉长
+    summer = _interval(9)  # 芒种 summer 1.5 → 间隔缩短
+    assert summer < spring  # 盛夏更频繁
+
+
+def test_season_big_ratio(client, monkeypatch):
+    """盛夏大虫害比例最高,春秋低;行为:同随机数在夏季出大虫、春季出小虫。"""
+    h = _reg(client, "pest_bigratio")
+    _plant(client, h, n=1)
+
+    def _ratio(term_idx):
+        _set_world_term(client, h, "pest_bigratio", term_idx)
+        with SessionLocal() as db:
+            return pest_service.season_big_ratio(db, _player(db, "pest_bigratio"))
+
+    summer_r = _ratio(9)   # 芒种 summer 0.5
+    spring_r = _ratio(4)   # 春分 spring 0.3
+    autumn_r = _ratio(15)  # 白露 autumn 0.2
+    assert summer_r > spring_r > autumn_r
+
+    # 行为验证:random()=0.4 → 夏季(0.5)出大虫,春季(0.3)出小虫
+    monkeypatch.setattr("app.services.pest_service.random.random", lambda: 0.4)
+    _set_world_term(client, h, "pest_bigratio", 9)
+    with SessionLocal() as db:
+        ev = pest_service.fire_pest(db, _player(db, "pest_bigratio"))  # forced_type=None → 按季节比例
+        assert ev["type"] == "pest_big", ev
+    client.post("/v1/debug/pest/clear", headers=h)
+    _set_world_term(client, h, "pest_bigratio", 4)
+    with SessionLocal() as db:
+        ev = pest_service.fire_pest(db, _player(db, "pest_bigratio"))
+        assert ev["type"] == "pest_small", ev

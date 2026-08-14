@@ -2,6 +2,17 @@
 
 调度:每用户独立维护 next_pest_at,平均每 `window_terms` 个节气触发
 `events_per_window` 次(默认 2 节气 3 次),间隔随机化(0.5~1.5×均值)。
+
+节气/季节驱动(依据真实农时,`pest.*` 可配):
+- 活跃窗口 `pest.active_terms`(默认惊蛰~霜降):窗口外(立冬~惊蛰前,含冬季)
+  完全不排虫 —— 害虫越冬休眠,冬天没有虫子。
+- 季节频率 `pest.season_frequency`:盛夏(立夏~大暑)最频繁,初春刚复苏最稀疏。
+- 季节大小虫比例 `pest.season_big_ratio`:盛夏高温高湿大虫灾最多,春秋大虫害少。
+
+离线应对:触发循环在 WS 主循环里,玩家离线不产生虫害;重新上线时
+`sync_offline` 把错过/过期的排程顺延到未来,避免"一上线就遭虫灾";
+冬季/早春则直接清空排程不排虫。调试接口可强制触发(含非活跃期)。
+
 - 大虫害:WS 广播含音游时长 → 前端游玩后提交成绩 → 校验实际耗时 ≥ 时长×min_elapsed_factor
   (防作弊:明显快于时长直接拒绝) → 按 pass_ratio 判定:达标发奖励(金币+随机道具),
   不达标按 miss//2 个随机地块寄生小虫害。
@@ -29,8 +40,9 @@ from app.models import (
     Plot,
     TermConfig,
 )
-from app.services.farm_service import crop_view
+from app.services.farm_service import crop_view, season_name
 from app.services.goal_service import grant_reward
+from app.services import world_service
 
 _KEYS = (
     "pest.enabled",
@@ -42,6 +54,9 @@ _KEYS = (
     "pest.min_elapsed_factor",
     "pest.pass_ratio",
     "pest.reward_coins",
+    "pest.active_terms",
+    "pest.season_frequency",
+    "pest.season_big_ratio",
 )
 _DEFAULTS = {
     "pest.enabled": True,
@@ -53,6 +68,20 @@ _DEFAULTS = {
     "pest.min_elapsed_factor": 0.6,  # 大虫害成绩提交的最短耗时 = 时长 × 该系数
     "pest.pass_ratio": 0.6,  # score/max_score ≥ 该值 → 奖励
     "pest.reward_coins": 20,
+    # ---- 节气/季节驱动(依据真实农时:惊蛰万物复苏→盛夏高发→霜降入蛰) ----
+    "pest.active_terms": {"start": 3, "end": 18},  # 虫害活跃窗口:惊蛰(3)~霜降(18);窗口外(立冬~惊蛰前,含冬季)无虫
+    "pest.season_frequency": {  # 触发频率倍率(基准均值 ÷ 倍率;>1 更频繁,<1 更稀疏)
+        "spring": 0.6,  # 惊蛰~谷雨:刚复苏,虫害稀少
+        "summer": 1.5,  # 立夏~大暑:病虫害高发期,最频繁
+        "autumn": 0.8,  # 立秋~霜降:回落,越往后越少
+        "winter": 0.0,  # 立冬~大寒:越冬休眠,无虫(与 active_terms 双保险)
+    },
+    "pest.season_big_ratio": {  # 大虫害比例(覆盖基准 big_ratio;clamp 0~0.95)
+        "spring": 0.3,  # 大爆发少,以散发病虫为主
+        "summer": 0.5,  # 盛夏高温高湿:大虫灾最多(如蝗灾/粘虫爆发期)
+        "autumn": 0.2,  # 大虫害基本消退,只剩小虫害
+        "winter": 0.0,
+    },
 }
 
 
@@ -73,6 +102,16 @@ def pest_config(db: Session) -> dict:
     waits = cfg["pest.stage_wait"]
     if isinstance(waits, dict):
         cfg["pest.stage_wait"] = {int(k): int(v) for k, v in waits.items() if str(k).isdigit()}
+    # active_terms 防御:start/end 归一化为 int
+    at = cfg.get("pest.active_terms")
+    if isinstance(at, dict):
+        try:
+            cfg["pest.active_terms"] = {
+                "start": int(at.get("start", 3)),
+                "end": int(at.get("end", 18)),
+            }
+        except (TypeError, ValueError):
+            pass
     return cfg
 
 
@@ -99,17 +138,76 @@ def _interval_seconds(db: Session, cfg: dict) -> float:
     return mean * random.uniform(0.5, 1.5)
 
 
+def _current_season(db: Session, player: Player) -> str:
+    """玩家当前世界季节(spring/summer/autumn/winter)。"""
+    return season_name(world_service.current_term(db, player)[0].term_index)
+
+
+def _pest_active(db: Session, player: Player) -> bool:
+    """玩家当前节气是否在虫害活跃窗口(默认惊蛰~霜降;窗口外=越冬期无虫)。"""
+    cfg = pest_config(db)
+    rng = cfg.get("pest.active_terms") or {}
+    try:
+        start = int(rng.get("start", 3))
+        end = int(rng.get("end", 18))
+    except (TypeError, ValueError):
+        start, end = 3, 18
+    term = world_service.current_term(db, player)[0].term_index
+    return start <= term <= end
+
+
+def season_interval_seconds(db: Session, player: Player, cfg: dict | None = None) -> float:
+    """当前季节下的触发间隔均值(基准均值 ÷ 季节频率倍率)。
+
+    夏季倍率 1.5 → 间隔缩到 2/3(虫害更频繁);初春 0.6 → 间隔拉长(稀疏)。
+    """
+    cfg = cfg or pest_config(db)
+    freq = float(
+        (cfg.get("pest.season_frequency") or {}).get(_current_season(db, player), 1.0) or 1.0
+    )
+    freq = max(0.1, freq)  # 防御:活跃期内必有频率,防除零
+    return _interval_seconds(db, cfg) / freq
+
+
+def season_big_ratio(db: Session, player: Player, cfg: dict | None = None) -> float:
+    """当前季节的大虫害比例(覆盖基准 big_ratio;clamp 0~0.95)。"""
+    cfg = cfg or pest_config(db)
+    base = float(cfg.get("pest.big_ratio", 0.3) or 0.3)
+    ratio = float((cfg.get("pest.season_big_ratio") or {}).get(_current_season(db, player)) or base)
+    return max(0.0, min(0.95, ratio))
+
+
 def schedule_next(db: Session, player: Player, now: datetime | None = None) -> None:
     now = now or _utcnow()
     cfg = pest_config(db)
-    player.next_pest_at = now + timedelta(seconds=_interval_seconds(db, cfg))
+    player.next_pest_at = now + timedelta(seconds=season_interval_seconds(db, player, cfg))
 
 
 def is_due(db: Session, player: Player, now: datetime | None = None) -> bool:
+    if not _pest_active(db, player):
+        return False  # 非活跃窗口(越冬期/早春未复苏):无虫害
     now = now or _utcnow()
     if player.next_pest_at is None:
-        return True  # 首连:立即安排一次(也即初始化)
+        return True
     return now >= ensure_aware(player.next_pest_at)
+
+
+def sync_offline(db: Session, player: Player, now: datetime | None = None) -> None:
+    """离线补偿:玩家离开期间不产生虫害,回归时顺延排程不突袭。
+
+    - 非活跃窗口(如冬季/早春):清空排程,完全不排虫。
+    - 活跃窗口:确保 next_pest_at 落在未来(离线错过或从未排程 → 从当前时刻顺延),
+      避免"一上线就遭虫灾";自然触发仍由 WS 主循环按到期触发。
+    """
+    now = now or _utcnow()
+    if not _pest_active(db, player):
+        if player.next_pest_at is not None:
+            player.next_pest_at = None
+            db.commit()
+        return
+    if player.next_pest_at is None or now >= ensure_aware(player.next_pest_at):
+        schedule_next(db, player, now)
+        db.commit()
 
 
 def has_active_pest(db: Session, player: Player) -> bool:
@@ -196,7 +294,7 @@ def fire_pest(db: Session, player: Player, forced_type: str | None = None) -> di
     if has_active_pest(db, player):
         raise AppError("PEST_BUSY", "已有进行中的虫害", code=28003)
     ptype = forced_type or (
-        "big" if random.random() < float(cfg["pest.big_ratio"]) else "small"
+        "big" if random.random() < season_big_ratio(db, player, cfg) else "small"
     )
     now = _utcnow()
     if ptype == "big":
@@ -446,6 +544,8 @@ def player_state(db: Session, player: Player) -> dict:
     plot_idx = {str(p.id): p.idx for p in db.query(Plot).filter(Plot.id.in_([t.plot_id for t in targets] or [uuid.UUID(int=0)])).all()}
     return {
         "enabled": cfg["pest.enabled"],
+        "season": _current_season(db, player),  # 当前玩家世界季节
+        "pest_active": _pest_active(db, player),  # 当前节气是否在虫害活跃窗口(冬季/早春=无虫)
         "next_pest_at": player.next_pest_at.isoformat() if player.next_pest_at else None,
         "active_big": {
             "pest_id": str(big.id),

@@ -23,7 +23,7 @@ from app.api import (
 from app.core.db import SessionLocal
 from app.core.security import decode_token
 from app.models import Player
-from app.services import farm_service, world_service
+from app.services import farm_service, pest_service, world_service
 from app.ws import manager
 
 api = APIRouter(prefix="/v1")
@@ -69,6 +69,7 @@ async def ws_endpoint(websocket: WebSocket, token: str = Query(default="")):
             return
         await websocket.accept()
         world_service.sync_world(db, player)
+        pest_service.sync_offline(db, player)  # 离线回归:错过排程顺延;冬季/早春清空不排虫
         db.commit()
         cal = world_service.current_calendar(db, player)
     player_id = str(player.id)
@@ -97,12 +98,10 @@ async def ws_endpoint(websocket: WebSocket, token: str = Query(default="")):
                 break
             # 每轮:同步世界 → 节气推送 → 虫害检查
             with SessionLocal() as db:
-                from app.services import pest_service
-
                 world_service.sync_world(db, player)
                 db.commit()
                 cal = world_service.current_calendar(db, player)
-                # 1) 到点触发虫害(每用户隔离;已有进行中的事件则顺延)
+                # 1) 到点触发虫害(每用户隔离;已有进行中的事件则顺延;非活跃窗/离线回归由 is_due+sync_offline 门控)
                 event = None
                 try:
                     if pest_service.is_due(db, player) and not pest_service.has_active_pest(db, player):

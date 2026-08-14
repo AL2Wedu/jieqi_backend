@@ -124,7 +124,7 @@
 | 25 | POST | `/v1/ai/chat` | 🔐 | AI 对话(OpenAI 兼容透传) |
 | 26 | GET | `/v1/ai/models` | 🔐 | 可用模型列表(透传上游) |
 | 27 | GET | `/v1/ai/usage` | 🔐 | 我的 AI 用量统计 |
-| 28 | GET | `/v1/pest/state` | 🔐 | 我的虫害状态(下次触发/进行中事件) |
+| 28 | GET | `/v1/pest/state` | 🔐 | 我的虫害状态(季节/活跃窗/下次触发/进行中事件) |
 | 29 | POST | `/v1/farm/pest/{pest_id}/result` | 🔐 | 大虫害提交成绩(防作弊校验+奖惩) |
 | 30 | POST | `/v1/farm/pest/{pest_id}/drive-away` | 🔐 | 驱赶小虫害寄生目标 |
 | 31 | POST | `/v1/shop/guest/start` | 🔐 | 开一单 AI 客人议价(1 份收成) |
@@ -711,6 +711,8 @@ GET /v1/social/friends/{player_id}/farm
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `enabled` | bool | 虫害系统是否启用 |
+| `season` | str | 当前玩家世界季节(spring/summer/autumn/winter) |
+| `pest_active` | bool | 当前节气是否在虫害活跃窗口(冬季/早春=无虫) |
 | `next_pest_at` | str\|null | 下次触发时间(ISO8601) |
 | `active_big` | object\|null | 进行中的大虫害:`{pest_id, duration_seconds, elapsed_seconds}` |
 | `active_small` | array | 寄生目标:`[{pest_id, plot_id, idx, ready_at, remaining_sec}]` |
@@ -1127,7 +1129,9 @@ GET /v1/social/friends/{player_id}/farm
 
 ### 8.45 GET /v1/admin/pest/config — 虫害配置
 
-**响应(data):** `pest.enabled / pest.events_per_window / pest.window_terms / pest.big_ratio / pest.big_duration_seconds / pest.stage_wait / pest.min_elapsed_factor / pest.pass_ratio / pest.reward_coins`(全部可读)。
+**响应(data):** `pest.enabled / pest.events_per_window / pest.window_terms / pest.big_ratio / pest.big_duration_seconds / pest.stage_wait / pest.min_elapsed_factor / pest.pass_ratio / pest.reward_coins / pest.active_terms / pest.season_frequency / pest.season_big_ratio`(全部可读)。
+
+**默认(节气/季节驱动)**:`active_terms={start:3,end:18}`(惊蛰~霜降,窗口外无虫)、`season_frequency={spring:0.6,summer:1.5,autumn:0.8,winter:0}`(盛夏最频繁)、`season_big_ratio={spring:0.3,summer:0.5,autumn:0.2,winter:0}`(盛夏大虫灾最多)。
 
 ### 8.46 PUT /v1/admin/pest/config — 保存虫害配置
 
