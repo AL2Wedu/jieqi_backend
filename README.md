@@ -2,244 +2,478 @@
 
 教育 + AI + 模拟经营游戏的后端仓库(元创S营项目)。客户端使用 Godot 4,后端为独立部署的 API 服务。
 
+**文档导航**:本文档(机制/架构/部署)→ [API.md](API.md)(全部接口,不读源码即可对接)→ [IMAGES.md](IMAGES.md)(美术素材)→ [docs/](docs/)(设计文档)
+
+---
+
+# 0. 项目状态
+
+| 状态 | 说明 |
+|---|---|
+| ✅ 已实现 | P0 核心玩法 + 扩展玩法全闭环(见第 1 章) |
+| 🧪 测试 | 63 个 pytest 用例全绿 |
+| 🚀 部署 | 演示模式可直跑;生产部署方案见第 7 章 |
+
 ---
 
 # 1. 功能总览(实现状态)
 
 > 状态标记:✅ 已实现 · ⚠️ 部分实现 · ❌ 未实现 · 📋 计划中
-> 当前为 **P0 demo 阶段**,核心玩法闭环已跑通,教育内容与 AI 为 P1。
 
 ## 1.1 已实现 ✅
 
 ### 账号与玩家
-- **注册 / 登录**:名字 + 密码(demo 形态),PBKDF2 密码哈希,JWT 签发(7 天)
-- **IP 记录与地理位置**:注册 IP / 最近登录 IP(`users.register_ip / last_login_ip`)+ **ip2region 离线库解析**(`register_location / last_login_location`,零外部请求,内网→"内网",库缺失优雅降级)
+- **注册 / 登录**:名字 + 密码(demo 形态),PBKDF2 密码哈希,JWT 签发(玩家 token 7 天)
+- **IP 地理位置**:注册/登录自动解析落库(`register_location / last_login_location`,ip2region 离线库,零外部请求,内网降级)
 - **封禁 / 解封**:管理后台操作,封禁后无法登录
-- **玩家资产**:等级 / 经验 / 金币 / 农场(4×5=20 地块)/ 背包
+- **玩家资产**:等级 / 经验 / 金币 / 农场(4×5=20 地块)/ 背包 / 收成仓 / 头衔(成就解锁)
 
-### 节气轮转时钟(核心)
+### 时间与节气(核心)
 - **24 节气轮转**:每节气默认 300 秒(可配置),约 2 小时一个完整循环,**纯公式计算,无日历表**
-- **时钟控制**:倍速 / 暂停 / 纪元重置(管理后台可操作)
-- **节气切换广播**:WebSocket 推送 `solar_term_change` 事件(单进程有效,见 ⚠️)
-- **调试推进**:`/v1/debug/term/advance` 手动切换节气
+- **每用户独立世界**:每个玩家维护自己的世界时钟 `world_accum`(在线 1× 推进 / 离线 0.25× 减速 / 全局暂停冻结 / 倍速可调),节气切换只影响自己
+- **实时推送**:节气切换经 WS 广播给该玩家
 
 ### 农场玩法(服务器权威)
-- **播种**:每格独立选择作物,校验节气窗(精细节气窗 + grace 宽限期)+ 消耗对应种子道具
-- **浇水**:`water_level` 置 100;水分随世界时间衰减(每节气 -10),低于植物需水红线 → 生长停滞
-- **季节枯萎**:玩家世界进入植物的枯萎季节 → 未收获作物枯萎(WS 推送 + farm state 提示)
-- **季节加速**:在植物加速季节播种 → 生长速度 × 倍率(成熟时间缩短)
-- **收获结算**:产量 × 单价 → 金币,走账本(`coin_transactions`);丰收记录保留,可再播种;土壤肥力低于植物需肥力 → 减产
-- **生长状态**:阶段(苗期/生长期/成熟)与进度由**服务器时间权威推导**,客户端只展示
-- **全服种植状态**:管理后台实时查看每株植物的阶段/进度/水分/播种节气(🌱 种植状态板块)
+- **4×5 田地**:20 个地块,idx 行优先(1-20),每个地块可独立选种
+- **播种校验链**:植物解锁(等级或经验其一)→ 宜种节气窗(精细节气窗 + grace 宽限轮次)→ 消耗对应种子道具
+- **季节加速**:在植物的加速季节播种 → 生长速度 × 倍率(成熟时间缩短)
+- **水分系统**:浇水补满,水分随世界时间衰减(每节气 -10),低于植物需水红线 → **生长停滞**
+- **杂草减速**:地块附杂草 → 该地块作物生长速度 × 0.5(可配置)
+- **季节枯萎**:玩家世界进入植物枯萎季节 → 未收获作物枯萎(WS 推送 + farm state 提示)
+- **肥力减产**:土壤肥力低于植物需肥力 → 收成减产 ×(soil/need)
+- **收获入仓**:收成进收成仓,不直接给金币,玩家择机到商店按季节价出售
+- **服务器权威**:阶段(苗期/生长期/成熟)与进度由服务器时间推导,客户端只展示
 
-### 作物 / 道具 / 商店
-- **15 种作物**:水稻/小麦/谷子/高粱/荞麦/玉米/大豆/花生/油菜/芝麻/白菜/大葱/萝卜/红薯/棉花(节气窗/生长时长/产量/单价全配置化)
+### 植物 / 道具 / 商店
+- **植物设定文件**:每株植物一个带注释的 JSONC 文件(`server/data/crops/<slug>.json`),是植物设定的**事实源**;改文件 → 重启/重跑 seed 即生效
+- **15 种植物**:水稻/小麦/谷子/高粱/荞麦/玉米/大豆/花生/油菜/芝麻/白菜/大葱/萝卜/红薯/棉花,各有宜种窗/枯萎季节/加速季节/需水/需肥/单株价值上限/解锁要求
 - **18 种道具**:15 种子 + 肥料(生长加速 50%)+ 水壶 + 节气卡;效果用 JSONB 定义,**加道具不改代码**
-- **商店**:商品列表、购买(扣金币 + 道具账本 `item_transactions`)
-- **道具使用**:按 `effect.type` 分发(肥料加速 / 水壶浇水)
-- **美术资产**:15 种作物 × 3 阶段真实素材(1/2/3.png)+ 种子图(阶段 1 兼作),预渲染 32/64/128/256 四档按分辨率下发;新建作物自动生成占位图;24 节气图同一管线(`/v1/art/terms/{term_index}.png`)
-- **杂草系统**:每个节气内的随机时刻生长一次(每用户世界),随机覆盖最多 3 个地块(优先有作物的),地块标 `weeded` → 该地块作物生长速度 × 0.5(可配置);新一次生长清除旧杂草(存活不超过一个节气);WS 推 `weed_growth` + farm state 返回 `weed_events`
-- **植物设定文件**:每株植物一个带注释的 JSONC(`server/data/crops/<slug>.json`):宜种窗 / 枯萎季节 / 加速季节 / 需水量 / 需肥力 / 单株价值上限 / 解锁等级与经验;文件为事实源,改文件重启即生效(seed 幂等同步),管理后台增改自动写回
+- **商店**:每用户独立商店(隔离/售空/周期补货),道具价 = base × item_factor;作物收购价 = base × sell_factor × 季节倍率 × 分类倍率,且不超过植物单株价值上限
+- **收成仓**:收获入仓,按当前季节价择机出售(秋 1.2 / 冬 0.9 应季涨降)
 
-### 任务 / 社交 / 成就 / AI
+### 扩展玩法
 - **任务系统**:5 个种子任务,自动跟踪(无需接取),进度由服务器实时计算,奖励走账本
-- **社交**:好友申请 / 接受 / 拒绝 / 列表 / 删除
-- **成就(通用版)**:配置驱动(通用条件格式),自动达成 + 领奖;**加新成就 = 配置加一行**
-- **AI 大模型转发**:OpenAI 兼容接口(`POST /v1/ai/chat` 透传),支持 DeepSeek/通义/智谱等任意兼容上游
-- **AI 用量追踪**:每用户每次请求的 tokens 自动记录(按玩家×模型×日聚合),玩家可查自己的,管理端可看全服
-- **管理后台 AI 设置**:服务器地址 / API Key(脱敏)/ 模型 / 开关 + 一键测试连接 + 每用户用量表
+- **社交系统**:好友申请 / 接受 / 拒绝 / 删除全流程
+- **成就系统**:配置驱动自动达成,解锁头衔
+- **AI 助手**:OpenAI 兼容转发(DeepSeek/通义/智谱可插拔),每用户用量统计,管理后台配置 APIKEY
+- **虫害系统**:每用户隔离调度;大虫害 = 音游对抗(防作弊:提交耗时校验,达标发奖励/不达标惩罚寄生);小虫害 = 寄生倒计时,到点摧毁作物,可驱赶
+- **杂草系统**:每个节气内的随机时刻生长一次(每用户世界),随机覆盖最多 3 个地块,减慢该地块作物生长;新一次生长清除旧杂草
+
+### 美术素材
+- **作物**:15 种 × (种子 + 苗期/生长期/成熟 3 阶段)真实素材,预渲染 32/64/128/256 四档按分辨率下发
+- **24 节气图**:同一预渲染管线,按节气序号取图
+- **版本协议**:`/v1/art/version` 返回全局 + 逐作物 + 逐节气内容哈希,客户端据此刷新本地素材缓存
 
 ### 管理后台(/admin)
-- **8 大板块**:仪表盘 / 用户列表 / 全局配置(`game_config` 热更新 + 环境变量只读打码)/ 作物管理(新增植物可自动建种子)/ 种植状态 / 道具管理 / 定价 / 节气设置
-- **底部日志监控**:只读实时流(server.out.log,等价 `Get-Content -Wait`),初始回放 200 行 + 增量推送、断线自动重连
-- **安全**:独立 admin JWT(2 小时过期)、`ADMIN_ENABLED` 总开关
+- **11 大板块**:仪表盘 / 用户列表 / 全局配置(`game_config` 热更新 + 环境变量只读打码)/ 作物管理(新增植物自动建种子 + 写回设定文件)/ 种植状态(全服每株实时)/ 道具管理 / 定价 / 节气设置 / 玩家世界(地块/背包/收成仓控制)/ 商店管理 / AI 设置 + 虫害设置
+- **实时日志流**:WS `/v1/admin/logs` 只读日志监控(回放 200 行 + 增量,无 RCE 面)
+- **安全模型**:独立 admin JWT(2 小时过期)、`ADMIN_ENABLED` 总开关、`ADMIN_PASSWORD` 为空拒绝一切登录
 
 ### 工程基础
-- **API 规范**:统一响应信封 `{code,message,data}`、分页信封、稳定错误码、OpenAPI 自动文档(`/docs`)
-- **测试**:10 个 pytest 用例全绿(注册→买种子→播种→浇水→催熟→收获 全闭环 + 管理后台全链路)
-- **种子数据幂等**:24 节气 / 6 作物 / 9 道具,启动自动导入,可重建
+- 响应信封 `{code, message, data}` 全接口统一;OpenAPI 自动文档(`/docs`)
+- 主键 UUID;分页信封统一;JSONB 兜底可扩展;幂等 seed 导入
+- 测试:63 个 pytest 用例全绿
 
 ## 1.2 部分实现 ⚠️
 
-| 功能 | 现状 | 缺口 |
-|---|---|---|
-| 节气卡道具 | 商店可购买 | `term_lock`(锁定节气)效果未实现,使用返回"功能开发中" |
-| 水壶/浇水 | 可设置为 100 | 水分**随时间衰减**机制未实现(不浇水不影响生长) |
-| 游戏时钟暂停 | 公式与后台均支持 `paused` | 未与玩法联动(如节气卡冻结时钟) |
-| 日志监控 | 全平台可用(只读文件流,无系统依赖) |
-| 多 worker 部署 | 单进程正常 | 节气广播为进程内任务,多 worker 会重复推送(需 Redis pub/sub) |
+- **节气卡(term_lock)**:道具可购买,但"锁定节气"效果未实现(使用返回 `EFFECT_NOT_SUPPORTED`)
+- **多 worker 广播**:当前节气广播为进程内任务,多 worker 会重复(生产需 Redis pub/sub,见第 7 章)
 
 ## 1.3 未实现 ❌(表已建 / 接口未做)
 
-- **头衔佩戴**:`titles` / `user_titles` 表已建,佩戴/展示逻辑未做(成就解锁头衔的联动未接)
-- **教育内容**:知识卡片(`knowledge_items`)/ 每日一题(`quiz_questions`)无数据、无接口
-- **AI 教育链路**:LLM 转发已通,但 pgvector RAG 知识库检索、AI 输出审核 + 留痕管线(`ai_messages`)未做
-- **学习进度**:`term_progress` / `user_quiz_records` 表已建,解锁逻辑未实现
-- **排行榜**、**活动任务**(quests 的 story 类)、**埋点分析**(`event_logs` / `play_sessions` 未采集)
-- **数据库迁移链**:Alembic 未初始化(开发用 `create_all` 建表)
-- **正式部署落地**:PostgreSQL 实机、Nginx、systemd 未实际配置(部署指南已写好,见第 7 节)
+- 教育内容模块(知识卡片 / 每日一题)—— P1
+- AI 增强(上下文记忆 / RAG 知识库 / 内容审核留痕)—— P1
+- 排行榜
+- 数据库迁移链 Alembic(当前开发用 create_all + 幂等 ALTER)
+- 正式版登录扩展(手机号 / 昵称真名分离 / 家长绑定)
+- 防沉迷(教育类定位暂不做,埋点保留便于合规加回)
 
 ## 1.4 计划中 📋(路线图)
 
 ### P1(下一步)
-- 教育内容模块:节气知识卡片 + 每日一题 + "学完本节气 → 解锁下一节气"教学闭环
-- AI 教育链路:pgvector 检索知识库 + 输出过审 + 全链路留痕(未成年人合规);AI 流式输出(SSE)
-- 头衔佩戴联动(成就解锁)、排行榜;Redis pub/sub 改造节气广播;Alembic 迁移链
+- 教育内容:知识卡片 / 每日一题 / 学习解锁闭环
+- AI 增强:上下文记忆 / RAG(pgvector)/ 审核留痕
+- 排行榜、节日活动
+- Redis pub/sub 广播改造、Alembic 迁移链
 
 ### P2(后续)
-- 班级 / 学校组织、教师后台、活动运营 CMS、埋点分析
-- 正式版登录扩展:手机号(家长绑定)、昵称/真名分离
-- 应季溢价定价(若做"应季 vs 反季"教育玩法,再引入节气价格系数)
+- 班级 / 学校组织、教师后台
+- 活动运营 CMS、埋点分析
+- 正式版登录扩展、应季溢价定价
 
 ---
 
-# 2. 技术栈
+# 2. 核心机制详解
 
-| 层 | 选型 |
-|---|---|
-| Web 框架 | FastAPI |
-| ORM | SQLAlchemy 2.0(开发 SQLite / 生产 PostgreSQL 16+) |
-| 校验 | Pydantic v2 |
-| 认证 | JWT(HS256):玩家 token + 管理员 token 双体系 |
-| 依赖管理 | uv(uv.lock 锁定) |
-| 管理后台日志监控 | xterm.js + 只读日志流 WS(无 PTY、无命令执行) |
-| 大模型(规划) | DeepSeek / 通义千问 / 智谱 + RAG |
+> 每个机制:运作方式 → 关键规则/公式 → 配置入口 → 相关 API。全部行为以代码为准,接口细节见 [API.md](API.md)。
 
-# 3. 设计文档
+## 2.1 时间与节气系统
 
-- [图片素材获取速查(前端)](IMAGES.md)
-- [API 文档(完整端点/请求响应/错误码/示例)](API.md)
-- [后端总体框架](docs/01-AL2Wedu-backend-framework.md)
-- [数据库 Schema 说明](docs/02-数据库Schema设计.md)
-- [API 契约与扩展性规范](docs/03-API契约与扩展性设计.md)
+**运作方式**:游戏时间由**公式计算**,不存日历表。全局参考时钟 `game_clock`(纪元 epoch + 倍速 time_scale),`elapsed = (now - epoch) × time_scale`;24 个节气按 `term_config` 顺序循环,每个节气默认 300 秒,一个完整循环约 2 小时。
 
-# 4. 目录结构
+**每用户独立世界**:每个玩家有独立的 `world_accum`(累计世界秒):
+- **在线**(最近心跳 ≤ 300 秒内):按全局倍速 × 1.0 推进
+- **离线**:按全局倍速 × 0.25 推进(`game_config: world.offline_factor` 可配)—— 离线不会完全停止,但成长更慢
+- **首次同步**:继承全局参考时钟位置(新玩家从当前节气开始)
+- **全局暂停**:管理后台暂停 → 所有玩家世界冻结在暂停时刻
+- 节气切换只影响该玩家自己的世界,不同玩家可以处于不同节气
+
+**配置入口**:管理后台"节气设置"(时长)/"时钟"(倍速/暂停);`term_config.json`(初始数据);`game_config: world.*`
+
+**相关 API**:`GET /v1/calendar/current`(我的节气)、`PUT /v1/admin/terms/{i}`、`PUT /v1/admin/clock`、`GET/PUT /v1/admin/worlds`
+
+## 2.2 账号与玩家
+
+**运作方式**:注册(名字+密码)→ PBKDF2(10 万次迭代)哈希落库 → 签发 JWT(HS256,7 天)。登录同流程。注册/登录时自动记录 IP 并解析地理位置(ip2region 离线库,内网/解析失败降级为空)。
+
+**资产体系**:金币走 `coin_transactions` 账本(每次变动留痕可审计);等级/经验/解锁节气为玩家字段;头衔由成就解锁(见 2.9)。
+
+**封禁**:管理后台置 `status=0` → **即时生效**:登录被拒(`USER_BANNED`),已登录的 token 在下次请求时同样被拒(存量会话统一拦截),解封后恢复。
+
+**配置入口**:管理后台"用户列表"(封禁/解封/改资产)。
+
+**相关 API**:`POST /v1/auth/register|login`、`GET /v1/player/me`、`PATCH /v1/admin/users/{id}/status|assets`
+
+## 2.3 农场系统
+
+**田地**:4 列 × 5 行 = 20 格,`idx` 按行优先编号(1-20,`idx = (row-1)*4 + col`);每格土壤肥力(1-3,影响产量)、可加锁。一地一株(部分唯一索引:同一地块最多一株未收获/未摧毁作物,历史保留可再种)。
+
+**播种校验链**(顺序执行,任一不过即拒绝):
+1. **解锁**:植物 `unlock_exp`(经验)或 `unlock_level`(等级)**达到其一即可**(两者均 0 = 无门槛)→ 失败返回 `CROP_LOCKED`
+2. **宜种窗**:当前节气 ∈ `sow_window`(term 精确窗 + grace 宽限轮次)→ 失败返回 `CROP_NOT_AVAILABLE`
+3. **种子**:背包有对应种子道具(自动消耗 1 个,写 `item_transactions` 账本)
+
+**生长计算**(服务器权威,客户端只展示):
+- 进度 = 经过秒数 × 生长速率 / 有效生长时长 × 100;阶段:1 苗期(<50%)/ 2 生长期(<100%)/ 3 成熟
+- **季节加速**:在植物 `fast_growth_seasons` 季节播种 → 有效生长时长 = 基础 ÷ 倍率(如水稻夏季 ×1.5 → 300s 变 200s)
+- **水分衰减**:浇水补满 100,此后每节气 -10(自上次浇水/播种起);低于植物 `water_need.min` → 进度冻结在红线时刻(停滞)
+- **杂草减速**:地块附杂草 → 生长速率 × `weed.slow_factor`(默认 0.5)
+- **枯萎**:玩家当前季节 ∈ 植物 `wither_seasons` → 未收获作物立即枯萎(销毁,地块可再种;WS 推 `crop_withered`)
+
+**收获**:成熟后收获 → 产量 = 基础 × (1 + 0.1×(肥力-1));土壤肥力 < 植物 `fertility_need` → 再乘 (soil/need) 减产。收成**入收成仓**(不直接给金币),结算留痕 `term_bonus_applied`。
+
+**配置入口**:植物设定文件(窗/解锁/加速/需水/需肥/枯萎,见 2.4);管理后台可种/清/改生长、改肥力/锁定。
+
+**相关 API**:`GET /v1/farm/state`、`POST /v1/farm/plots/{id}/sow|water|harvest|clear`、`GET /v1/admin/plantings`、管理后台地块控制 5 端点
+
+## 2.4 植物设定文件(JSONC 事实源)
+
+**运作方式**:每株植物一个文件 `server/data/crops/<slug>.json`,支持 `//` 注释。启动/重跑 seed 时幂等同步到 DB(`sync_crops` upsert,按名称匹配更新,不覆盖 active 状态)。**改文件 → 重启服务即生效**;管理后台增改植物会自动写回文件(文件 = 唯一事实源)。
+
+**字段全表**:
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `slug` | str | 唯一英文标识(素材目录/种子道具前缀) |
+| `name` | str | 中文名 |
+| `category` | str | 谷物/油料/蔬菜/经济作物/花卉(影响卖价分类倍率) |
+| `sort_order` | int | 排序 |
+| `sow_window` | dict | 宜种窗 `{type:"term", start, end, grace}` |
+| `grow_seconds` | int | 基础生长时长 |
+| `yield_base` | int | 基础收成量 |
+| `base_price` | int | 基础收购单价 |
+| `unlock_level` / `unlock_exp` | int | 解锁要求(等级/经验,其一即可) |
+| `settings.wither_seasons` | list | 枯萎季节(spring/summer/autumn/winter) |
+| `settings.fast_growth_seasons` | dict | 加速季节 `{季节: 倍率}` |
+| `settings.water_need` | dict | 需水 `{min, ideal}`(低于 min 停滞) |
+| `settings.fertility_need` | int | 需肥力(低于则减产) |
+| `settings.max_value` | int | 单株卖价上限(0=不封顶) |
+| `art`(可选) | dict | 素材路径覆盖(缺省用 slug 派生) |
+| `note` | str | 备注 |
+
+**新增植物三步**:复制 `_template.json` → 填字段 → 重启服务(种子道具自动生成:管理后台创建时勾选 auto_seed)。
+
+## 2.5 商店与收成仓
+
+**运作方式**:每个玩家一个独立商店实例(商品库存隔离,售空不共享;按 `restock_seconds` 周期补货)。道具与作物收购价都走公式,管理后台可全局覆盖 + 逐用户覆盖。
+
+**价格公式**:
+- 道具/种子售价 = `item.buy_price × item_factor`
+- 作物收购价 = `base_price × sell_factor × season_effect[季节] × category_factor[分类]`,且 **≤ 植物 `max_value`**(单株上限)
+- 默认系数:季节 春1.1/夏1.0/秋1.2/冬0.9;分类 谷物1.0/蔬菜1.1/花卉1.25;sell_factor 0.8
+
+**收成仓**:收获入仓(不直接变现)→ 玩家在任意时刻按**当前季节价**出售(`POST /v1/shop/crops/{crop_id}/sell`)。秋收秋卖最赚,冬卖最亏 —— 择机出售是玩法空间。
+
+**配置入口**:管理后台"商店管理"(全局默认 + 逐用户覆盖/补货/重置)、"定价"(内联改价)。
+
+**相关 API**:`GET /v1/shop/state|items|storage`、`POST /v1/shop/items/{id}/buy`、`POST /v1/shop/crops/{id}/sell`
+
+## 2.6 道具系统
+
+**运作方式**:道具目录 `items`(配置)+ 玩家背包 `user_items`(数量)+ 流水账本 `item_transactions`(每次增减留痕可审计)。效果由 `effect` JSONB 定义,加新道具只改配置不改代码。
+
+**effect 类型表**:`seed`(种子,含 crop_id)/ `fertilizer`(肥料,生长加速 50%)/ `water`(水壶,浇水)/ `term_lock`(节气卡,锁定节气 —— 效果未实现 ⚠️)
+
+**使用**:`POST /v1/player/inventory/{item_id}/use` 按 effect.type 分发(肥料 → 目标地块 boost_pct;水壶 → 浇水;种子 → 播种)。
+
+## 2.7 任务系统
+
+**运作方式**:任务配置(5 个种子任务)自动跟踪,无需接取 —— 服务器根据玩家行为实时计算进度(通用 condition 格式:类型/目标/当前值)。达成后 `POST /v1/quests/{id}/claim` 领取,奖励(金币/道具/经验)走账本。
+
+**配置入口**:`data/quests.json`(seed 导入)。
+
+## 2.8 社交系统
+
+**运作方式**:好友 = 双向关系。发起申请 → 对方接受/拒绝 → 成为好友 → 可删除。申请不能重复、不能加自己。
+
+**相关 API**:`GET /v1/social/friends|requests`、`POST /v1/social/requests`、`POST /v1/social/requests/{id}/accept|reject`、`DELETE /v1/social/friends/{id}`
+
+## 2.9 成就系统
+
+**运作方式**:成就配置驱动,达成条件与任务同格式(target 计数),自动达成后 `POST /v1/achievements/{id}/claim` 领取奖励;头衔(`head_title_id`)由成就解锁,玩家档案展示。
+
+**配置入口**:`data/achievements.json`(seed 导入)。
+
+## 2.10 AI 助手
+
+**运作方式**:OpenAI 兼容协议转发 —— `POST /v1/ai/chat` 接收 `{messages, model}`,后端转发到配置的国内大模型(DeepSeek/通义/智谱可插拔),响应兼容 OpenAI 格式。**每用户用量统计**(token 数)落库,管理后台可查全服用量。
+
+**配置入口**:管理后台"AI 设置"(APIKEY/模型/地址);`game_config: ai.*`。
+
+**相关 API**:`POST /v1/ai/chat`、`GET /v1/ai/models|usage`、`GET/PUT /v1/admin/ai/config`、`POST /v1/admin/ai/test`、`GET /v1/admin/ai/usage`
+
+## 2.11 虫害系统
+
+**运作方式**:每用户隔离调度 —— 平均每 `window_terms`(默认 2)个节气触发 `events_per_window`(默认 3)次,间隔随机化(0.5~1.5×均值)。到点经 WS 推送给该玩家,已有进行中事件则顺延。
+
+- **大虫害**(音游对抗):WS 广播含音游时长 → 前端游玩后提交成绩 → **防作弊**:提交耗时 ≥ 时长 × `min_elapsed_factor`(默认 0.6),过快直接拒绝(`PEST_RESULT_TOO_FAST`)→ 达标(score/max ≥ `pass_ratio` 0.6)发奖励(金币+随机道具);不达标按 miss//2 个随机地块寄生小虫害
+- **小虫害**(寄生):1~5 个随机地块(有作物的)各挂倒计时(按生长阶段,苗期 120s/生长期 90s/成熟 60s,可配)→ 到点**摧毁作物**;玩家可驱赶(倒计时结束前驱赶成功则作物保住)
+
+**配置入口**:管理后台"虫害设置"(pest.* 全部可调:enabled/频率/大虫害参数/阶段倒计时);调试接口可强制触发/清除。
+
+**相关 API**:`GET /v1/pest/state`、`POST /v1/farm/pest/{id}/result|drive-away`、`GET/PUT /v1/admin/pest/config`、`GET /v1/admin/pest/events`、`POST /v1/debug/pest/trigger|clear`
+
+## 2.12 杂草系统
+
+**运作方式**:每用户世界,每个节气内**随机一个时刻**生长一次(世界秒调度 `weed_scheduled_accum`;离线期间世界推进也会触发)。到点:清除旧杂草 → 随机覆盖最多 `weed.max_plots`(默认 3)个地块(优先有作物的)→ 该地块作物生长速度 × `weed.slow_factor`(默认 0.5)。杂草存活不超过一个节气(下一次生长重新随机)。WS 推 `weed_growth`。
+
+**配置入口**:`game_config: weed.*`(enabled/slow_factor/max_plots);调试接口强制触发/清除。
+
+**相关 API**:farm state 的 `plots[].weeded` 与 `weed_events`、`POST /v1/debug/weed/trigger|clear`
+
+## 2.13 美术素材管线
+
+**运作方式**:源素材(PNG)导入后预渲染 32/64/128/256 四档(等比缩放,LANCZOS);客户端请求时按目标宽度 `w` 取**最小不小于 w** 的档(超出取最大档),零请求时渲染。作物每株 4 素材(种子 + 3 阶段),节气每节气 1 素材。
+
+**素材版本协议**:`GET /v1/art/version` 返回全局 `version` + 逐作物 `crops` + 逐节气 `terms`(内容哈希)→ 客户端登录/节气切换时对比:全局变 → 全量刷新;单作物/单节气变 → 只刷该素材。
+
+**素材目录**:`static/assets/crops/<slug>/{seed,1,2,3}.png`、`static/assets/terms/<slug>/main.png`(均含 `_{size}.png` 预渲染档)。
+
+**相关 API**:`GET /v1/art/crops/{slug}/{name}.png?w=`、`GET /v1/art/terms/{term_index}.png?w=`、`GET /v1/art/version`
+
+## 2.14 实时推送(WebSocket)
+
+**运作方式**:`WS /v1/ws?token=` 长连接(玩家 JWT 走查询参数)。连接即推当前节气;此后服务端主动推送 7 类事件。**原则:事件是"何时刷新"的通知,数据以 REST 接口为准**。
+
+| 事件 | 触发 | 客户端动作 |
+|---|---|---|
+| `solar_term_change` | 节气切换/连接首帧 | 更新节气 UI |
+| `resources_changed` | 管理后台改该玩家资产 | **重新 GET /v1/player/me** |
+| `pest_big` / `pest_small` | 虫害触发 | 弹音游 / 标红地块 |
+| `pest_destroyed` | 寄生到点摧毁 | 刷新地块 |
+| `crop_withered` | 季节枯萎 | 刷新地块 + 提示 |
+| `weed_growth` | 杂草生长 | 刷新地块 + 动画 |
+
+心跳:客户端每 30s 发 `ping` → `pong`;断线自动重连(指数退避),重连首帧即当前节气。客户端接入代码见 API.md §9.4。
+
+## 2.15 管理后台
+
+**运作方式**:独立管理员体系(与玩家体系隔离)—— `ADMIN_ENABLED` 总开关;`ADMIN_PASSWORD` 为空**拒绝一切登录**;登录签发独立 admin JWT(2 小时);操作审计入 `event_logs`。`GET /admin` 为单页应用(登录 → 11 板块导航),`WS /v1/admin/logs` 实时日志流(只读,无 RCE 面)。
+
+**11 板块**:仪表盘 / 用户列表 / 全局配置 / 作物管理 / 种植状态 / 道具管理 / 定价 / 节气设置 / 玩家世界 / 商店管理 / AI 设置与虫害设置。
+
+**安全红线**:admin 凭据必须改默认值;生产环境 `ADMIN_ENABLED=false` 或仅内网开放;终端/日志类能力只读。
+
+---
+# 3. 技术栈与框架
+
+| 框架/库 | 用途 | 关键点 |
+|---|---|---|
+| **FastAPI** | Web 框架 | 自动 OpenAPI 文档(`/docs`)、异步支持、依赖注入 |
+| **SQLAlchemy 2.0** | ORM | 开发用 SQLite / 生产切 PostgreSQL;UUID 主键、JSONB 扩展 |
+| **Pydantic v2** | 请求/响应校验 | 字段约束、类型转换,全接口统一 |
+| **PyJWT** | 认证 | HS256;玩家 token 7 天 / admin token 2 小时双体系 |
+| **PBKDF2**(标准库) | 密码哈希 | 10 万次迭代,无额外依赖 |
+| **uv** | 依赖/工程管理 | `uv.lock` 锁定;国内镜像安装 |
+| **uvicorn** | ASGI 服务器 | 开发直跑;生产由 systemd 托管 |
+| **Pillow** | 美术预渲染 | 素材 32/64/128/256 四档等比缩放(LANCZOS) |
+| **ip2region** | IP 地理位置 | 离线库,零外部请求,内网降级 |
+| **pywinpty**(仅本机开发) | 终端桥 | 已废弃(管理后台改为只读日志流) |
+
+# 4. 架构
+
+## 4.1 分层结构
 
 ```
-server/
-├── pyproject.toml        # uv 项目定义
-├── uv.lock               # 依赖锁定
-├── .env(.example)        # 环境配置
-├── app/
-│   ├── main.py           # 入口:FastAPI 实例 / CORS / 异常处理 / lifespan(建表+seed+节气广播)
-│   ├── core/             # 横切基础设施(config/db/security/errors/deps/svg_art)
-│   ├── models/           # SQLAlchemy 模型(13 张表)
-│   ├── schemas/          # Pydantic 请求模型
-│   ├── services/         # 业务逻辑(calendar/auth/player/farm/inventory/shop/admin)
-│   ├── api/              # 路由层(auth/player/calendar/farm/shop/debug/admin + WS)
-│   ├── ws/               # WebSocket:节气广播 + 管理日志流
-│   └── static/           # 管理后台单页 admin.html + 植物美术 SVG
-├── data/                 # 种子数据(24 节气 / 6 作物 / 9 道具)
-├── scripts/seed.py       # 幂等种子导入(启动自动执行)
-└── tests/                # pytest(10 用例)
+客户端(Godot / 管理后台浏览器)
+      │  HTTP + WS
+      ▼
+┌─────────────────────────────────────────────┐
+│ API 路由层(app/api)                          │
+│   鉴权守卫 → 参数校验(Pydantic)→ 响应信封     │
+├─────────────────────────────────────────────┤
+│ 业务服务层(app/services)                     │
+│   calendar / world(时间)· farm · shop ·      │
+│   quests · social · achievements · ai ·      │
+│   pest · weed · admin                        │
+├─────────────────────────────────────────────┤
+│ 数据层(app/models,SQLAlchemy)+ 横切          │
+│   core:config / security / errors / deps     │
+│   ws:连接管理与定向推送                       │
+└─────────────────────────────────────────────┘
 ```
 
-# 5. 本地开发
+**请求生命周期**(以播种为例):`POST /v1/farm/plots/{id}/sow` → 玩家 JWT 守卫(含封禁检查/世界时钟同步)→ Pydantic 校验 → farm_service.sow:解锁校验 → 宜种窗校验 → 种子扣除(账本)→ 创建作物实例(服务器权威状态)→ 信封返回。
 
-**环境要求**:Python 3.11+、uv
+## 4.2 数据流(配置与实例分离)
+
+```
+data/crops/*.json(植物设定,事实源)──seed 同步──▶ crops 表(模板)
+data/term_config.json ──▶ term_config 表(节气)
+data/items.json ──▶ items 表(道具目录)
+static/assets/**(美术源+预渲染档)──▶ /v1/art 按分辨率下发
+玩家行为 ──▶ crop_instances(每株状态)/ coin_transactions(账本)/ item_transactions(账本)
+```
+
+## 4.3 时间模型(全局 vs 每用户)
+
+```
+墙钟(now)──▶ 全局参考 elapsed=(now-epoch)×scale ──▶ 节气公式(term_at)
+                 │
+                 └─▶ 玩家 world_accum(首次继承全局;在线 1× / 离线 0.25×)
+                       └─▶ 玩家自己的节气/季节(独立世界)
+作物生长走墙钟(与玩家世界解耦,离线不饿死);枯萎/杂草/虫害/商店季节价走玩家世界
+```
+
+## 4.4 进程模型
+
+- **开发/演示**:单 uvicorn 进程,进程内后台任务负责节气广播(每用户 WS 定向推送)
+- **生产多 worker**:⚠️ 广播任务每 worker 一份会重复 → 需 Redis pub/sub(见 7.3.4)
+
+# 5. 目录结构
+
+```
+jieqi_backend/
+├── README.md / API.md / IMAGES.md     # 本文档 / 接口参考 / 素材速查
+├── docs/                              # 设计文档(01框架/02Schema/03API)
+└── server/
+    ├── pyproject.toml / uv.lock       # uv 工程
+    ├── conftest.py                    # 测试隔离(素材目录/植物设定文件)
+    ├── data/
+    │   ├── term_config.json           # 24 节气(时长可配)
+    │   ├── crops/                     # ★ 植物设定:每株一个 JSONC(见 2.4)
+    │   ├── items.json / quests.json / achievements.json
+    ├── scripts/
+    │   ├── seed.py                    # 幂等导入(启动自动执行,含 crops 同步)
+    │   ├── crop_loader.py             # JSONC 加载器(注释剥离)
+    │   ├── import_term_images.py      # 24 节气图导入+预渲染
+    │   ├── verify_api_docs.py         # 文档↔代码一致性校验
+    │   └── run_server.ps1 / stop_server.ps1   # 独立进程管理(Windows)
+    ├── app/
+    │   ├── main.py                    # 入口:lifespan(建表+迁移+seed+同步)
+    │   ├── core/                      # config/security/errors/db/deps/utils/svg_art
+    │   ├── models/                    # SQLAlchemy 模型(20+ 表)
+    │   ├── schemas/                   # Pydantic 请求模型
+    │   ├── services/                  # 业务逻辑(14 个 service)
+    │   ├── api/                       # 路由(13 个模块,88 端点)
+    │   ├── ws/                        # 连接管理 + 定向推送
+    │   └── static/
+    │       ├── admin.html             # 管理后台单页
+    │       └── assets/crops|terms/    # 美术素材(源+预渲染档)
+    └── tests/                         # 63 个 pytest 用例
+```
+
+# 6. 本地开发
+
+## 6.1 环境要求
+
+- Python 3.11+ / uv
+- 依赖安装:`cd server && uv sync --default-index https://mirrors.aliyun.com/pypi/simple/`
+
+## 6.2 配置(.env)
+
+复制 `.env.example` 为 `.env`。关键项:`DATABASE_URL`(默认 SQLite dev.db)、`JWT_SECRET`、`ADMIN_USERNAME/ADMIN_PASSWORD/ADMIN_ENABLED`、`DEBUG_ENABLED`。**上线必须改默认 admin 密码与 JWT_SECRET**。
+
+## 6.3 启动
 
 ```bash
-cd server
-uv sync --default-index https://mirrors.aliyun.com/pypi/simple/   # 安装依赖(国内镜像)
-cp .env.example .env        # 按需修改(默认值可直接开发)
+# 方式一:前台直跑(开发)
+cd server && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000   # 启动(0.0.0.0=局域网可访问,仅本机调试可去掉)
-uv run python -m pytest -v                  # 跑测试
+# 方式二:独立进程(推荐,脱离会话,隐藏窗口+日志+PID)
+powershell -File server/scripts/run_server.ps1
+powershell -File server/scripts/stop_server.ps1   # 停止
 ```
 
-### 独立进程管理(推荐,脱离 Hermes / 宿主会话)
+## 6.4 测试
 
-后端可用脚本独立启动,**关闭 Hermes 或终端不影响服务**:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\run_visible.ps1    # 启动(推荐:单独可见终端窗口,日志实时显示)
-powershell -ExecutionPolicy Bypass -File scripts\run_server.ps1     # 启动(0.0.0.0:8000,后台隐藏窗口+日志文件)
-powershell -ExecutionPolicy Bypass -File scripts\stop_server.ps1   # 停止(按 PID,端口残留兜底)
+```bash
+cd server && env -u PYTHONPATH uv run python -m pytest -v   # 63 用例
 ```
 
-- 日志:`logs\server.out.log` / `logs\server.err.log`;PID 文件:`logs\server.pid`
-- 脚本自动清理 Hermes 注入的 `PYTHONPATH`(避免 import 串包),端口占用时提示先停
-- 管理后台**日志监控为只读流**,与独立实例互不干扰(服务由系统/脚本托管,后台只负责看日志)
+> `env -u PYTHONPATH` 是必须的:本机 Hermes 环境会注入自己的 site-packages,遮蔽项目 venv。
 
-> 注:若在 Hermes 等带 `PYTHONPATH` 污染的环境运行,命令前加 `env -u PYTHONPATH`。
+## 6.5 调试接口速查(需 DEBUG_ENABLED=true)
 
-**管理后台**:http://127.0.0.1:8000/admin(账号见 `.env` 的 `ADMIN_USERNAME/ADMIN_PASSWORD`,开发默认 `admin/admin123`)
+| 接口 | 作用 |
+|---|---|
+| `POST /v1/debug/config` | 热改 game_config(改配置不发版) |
+| `POST /v1/debug/term/advance` | 推进节气(只影响自己) |
+| `POST /v1/debug/grow` | 催熟指定地块 |
+| `POST /v1/debug/pest/trigger\|clear` | 强制触发/清除虫害 |
+| `POST /v1/debug/weed/trigger\|clear` | 强制触发/清除杂草 |
 
-**调试接口**(`DEBUG_ENABLED=true` 时可用,均需玩家登录):
-- `POST /v1/debug/config` — 热改全局配置(价格/节气时长等,不发版)
-- `POST /v1/debug/term/advance` — 手动推进节气(测播种窗/事件)
-- `POST /v1/debug/grow` — 催熟指定地块作物(测收获)
+## 6.6 常见坑(Windows 开发)
 
-# 6. 管理后台(/admin)
-
-- 访问:启动服务后浏览器打开 `http://127.0.0.1:8000/admin`
-- 账号:`.env` 中的 `ADMIN_USERNAME` / `ADMIN_PASSWORD`(开发默认 `admin` / `admin123`,上线必须修改)
-- 板块:
-  - **仪表盘**:服务状态 / 当前节气 / 用户数 / 金币总量
-  - **用户列表**:分页、封禁/解封(封禁后无法登录)
-  - **全局配置**:`game_config` KV 热更新(改配置即时生效,不发版)+ 系统环境变量只读(敏感值打码)
-  - **作物管理**:新增植物(可自动创建种子道具)、编辑节气窗/生长时长/产量/价格/美术、软删除
-  - **种植状态**:全服每株植物的服务器权威实时状态(阶段/进度/水分/播种节气)
-  - **道具管理**:增删改,effect JSON 定义效果
-  - **定价**:作物售价与道具价格内联编辑
-  - **节气设置**:24 节气时长、游戏时钟倍速/暂停/纪元重置
-  - **底部日志监控栏**:实时滚动 `server.out.log`(只读流,初始回放 200 行 + 增量推送,断线自动重连)
-- 安全:`ADMIN_ENABLED=false` 整体关闭;admin token 2 小时过期;日志流为**只读**,无任何命令执行能力,可放心部署
+- uvicorn 被杀后 python 子进程残留占端口 → `Get-NetTCPConnection -LocalPort 8000 | Stop-Process`
+- git-bash curl 发中文 JSON 乱码 → 用 `--data @file` 或 Python 脚本
+- 改 `data/crops/*.json` 后需重启服务才生效(seed 同步在启动时执行)
 
 # 7. 部署指南
 
-## 7.1 架构总览
+## 7.1 架构总览(生产)
 
 ```
 客户端(Godot / 浏览器)
-        │ HTTPS
-        ▼
-    Nginx 反向代理    ← TLS 证书 / 静态资源缓存 / 限流 / WebSocket 升级
-        │
-        ▼
-  uvicorn(FastAPI)   ← systemd 托管,多 worker
-        │
-   ┌────┼─────┐
-   ▼    ▼     ▼
-PostgreSQL  Redis    对象存储
- 16+    (缓存/广播)  (美术大图,后续)
+      │ HTTPS
+      ▼
+  Nginx(反向代理 + TLS + 静态缓存)
+      │
+      ▼
+uvicorn × N workers(FastAPI)
+      │                    ┌──────────────┐
+      ├──▶ PostgreSQL 16+  │ Redis(计划):  │
+      └──▶ (广播/缓存)      │ 节气广播 pub/sub│
+                           └──────────────┘
 ```
+
+> 每用户世界时钟:玩家请求时同步(在线 1×/离线 0.25×),多 worker 下天然一致(状态在 DB);唯一需要 Redis 的是节气广播的跨 worker 去重。
 
 ## 7.2 快速演示部署(单机直跑)
 
-适合内网/演示环境,一条命令起服务:
-
 ```bash
-cd /opt/jieqi_backend/server
-uv sync --default-index https://mirrors.aliyun.com/pypi/simple/
-cp .env.example .env
-# 编辑 .env:改 JWT_SECRET(强随机)和 ADMIN_PASSWORD
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+cd server && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
-以 systemd 方式常驻(推荐):
+- SQLite 单文件库,开箱即用;管理后台 `http://<host>:8000/admin`
+- 演示环境建议 `DEBUG_ENABLED=true` 便于推进节气/催熟测试
+
+systemd 托管(生产单机):
 
 ```ini
 # /etc/systemd/system/jieqi.service
 [Unit]
-Description=jieqi_backend API server
+Description=jieqi backend
 After=network.target
 
 [Service]
-Type=simple
-WorkingDirectory=/opt/jieqi_backend/server
-ExecStart=/opt/jieqi_backend/server/.venv/Scripts/uvicorn app.main:app --host 0.0.0.0 --port 8000
+WorkingDirectory=/opt/jieqi/server
+ExecStart=/opt/jieqi/server/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 Restart=always
-RestartSec=3
-Environment=PYTHONPATH=
+EnvironmentFile=/opt/jieqi/server/.env
 
 [Install]
 WantedBy=multi-user.target
-```
-
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable --now jieqi
 ```
 
 ## 7.3 正式部署(生产)
@@ -248,124 +482,121 @@ sudo systemctl enable --now jieqi
 
 ```bash
 # 云服务器上(以 Ubuntu 为例)
-sudo apt install postgresql-16
-sudo -u postgres psql -c "CREATE USER jieqi WITH PASSWORD '强密码';"
-sudo -u postgres psql -c "CREATE DATABASE jieqi OWNER jieqi;"
+sudo -u postgres createdb jieqi
+sudo -u postgres createuser jieqi_app --pwprompt
 ```
 
-`.env` 配置:
-
-```
-DATABASE_URL=postgresql://jieqi:强密码@127.0.0.1:5432/jieqi
-```
-
-模型已按 PostgreSQL 友好设计(UUID 原生 / JSON / INET),SQLite → PG 切换只需改连接串。
-
-**数据库迁移**:开发阶段用 `create_all`(启动自动建表 + 幂等种子导入);上线前补 Alembic:
-
-```bash
-uv add alembic
-uv run alembic init alembic
-# alembic/env.py 指向 app.core.db 的 Base.metadata,autogenerate 生成迁移
-uv run alembic revision --autogenerate -m "init"
-uv run alembic upgrade head
-```
+- `DATABASE_URL=postgresql://jieqi_app:***@127.0.0.1/jieqi`
+- 模型已按 PG 友好设计(UUID 原生/JSONB/INET);当前开发用 `create_all` + 幂等 ALTER,上线前补 **Alembic 迁移链**:
+  ```bash
+  # alembic/env.py 指向 app.core.db 的 Base.metadata,autogenerate 生成迁移
+  ```
 
 ### 7.3.2 环境变量清单
 
-| 变量 | 默认 | 生产要求 |
+| 变量 | 必填 | 说明 |
 |---|---|---|
-| `DATABASE_URL` | `sqlite:///./dev.db` | PostgreSQL 连接串 |
-| `JWT_SECRET` | 开发占位 | **强随机**(`openssl rand -hex 32`) |
-| `JWT_EXPIRE_DAYS` | 7 | 按需 |
-| `DEBUG_ENABLED` | true | **false**(关闭调试接口) |
-| `ADMIN_ENABLED` | true | **false 或仅内网** |
-| `ADMIN_USERNAME` | admin | 改 |
-| `ADMIN_PASSWORD` | 空(必须设置) | **强密码** |
-| `TERM_DEFAULT_DURATION` | 300 | 按玩法配置 |
+| `DATABASE_URL` | ✅ | 生产用 PostgreSQL |
+| `JWT_SECRET` | ✅ | 强随机,泄露=全部 token 可伪造 |
+| `ADMIN_USERNAME` / `ADMIN_PASSWORD` | ✅ | 强密码;为空拒绝一切管理登录 |
+| `ADMIN_ENABLED` | 否 | 默认 true;生产可关 |
+| `DEBUG_ENABLED` | 否 | 默认 false(调试接口必须关) |
 
 ### 7.3.3 Nginx 反向代理 + HTTPS
 
 ```nginx
 # /etc/nginx/sites-available/jieqi
 server {
-    listen 80;
-    server_name api.your-domain.com;
-    return 301 https://$host$request_uri;   # HTTP → HTTPS
-}
+    listen 443 ssl;
+    server_name api.example.com;
+    ssl_certificate     /etc/letsencrypt/live/api.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/api.example.com/privkey.pem;
 
-server {
-    listen 443 ssl http2;
-    server_name api.your-domain.com;
-
-    ssl_certificate     /etc/letsencrypt/live/api.your-domain.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/api.your-domain.com/privkey.pem;
-
-    client_max_body_size 20m;
-
-    location /static/ {                      # 静态资源(管理后台/美术)
+    client_max_body_size 10m;
+    # 静态素材(预渲染 PNG)长缓存
+    location /static/ {
         proxy_pass http://127.0.0.1:8000;
-        expires 7d;
+        proxy_cache_valid 200 7d;
     }
-
-    location / {
+    # 管理后台页面
+    location = /admin { proxy_pass http://127.0.0.1:8000; }
+    # WS:节气推送 + 管理日志流(必须带 Upgrade 头)
+    location /v1/ws {
         proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-
-        # WebSocket(节气广播 / 管理日志监控)
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
-        proxy_read_timeout 3600s;
+    }
+    location /v1/admin/logs {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }
+    location / {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;  # IP 地理依赖
     }
 }
 ```
 
-证书用 certbot 免费签发:`sudo certbot --nginx -d api.your-domain.com`
-
 ### 7.3.4 多 worker 与节气广播(重要)
 
-- 生产可 `--workers 4` 提升并发;
-- ⚠️ **节气切换广播任务当前为进程内任务**,多 worker 下每个 worker 各广播一份,会导致客户端收到重复事件;
-- 解决方案(规划中,P1):广播改用 **Redis pub/sub**(`jieqi:term_change` 频道),各 worker 订阅、推送自己的 WS 连接。
+- 单进程:广播任务在进程内,直接定向推送,无问题
+- 多 worker:每个 worker 都跑一份广播任务 → **同一事件推 N 次**
+- 方案:广播改 **Redis pub/sub**(事件 → Redis → 各 worker 消费后定向推送);当前为 P1 计划项
 
 ### 7.3.5 安全清单
 
-- [ ] `JWT_SECRET` 强随机,不落代码仓库
-- [ ] `ADMIN_ENABLED=false` 或管理后台仅内网/跳板机可达
-- [ ] `DEBUG_ENABLED=false`
-- [ ] 云安全组/防火墙只放行 80/443(及 SSH)
-- [x] 日志监控为只读流,无命令执行面(已消除 RCE 风险)
-- [ ] 未成年人合规:AI 输出审核 + 留痕(见设计文档)
+- [ ] `JWT_SECRET` 强随机、`ADMIN_PASSWORD` 强密码(非默认)
+- [ ] `DEBUG_ENABLED=false`;`ADMIN_ENABLED=false` 或仅内网开放
+- [ ] 防火墙只开 443;DB 不暴露公网
+- [ ] HTTPS 全站;`X-Forwarded-For` 只信任 Nginx
+- [ ] 备份策略(见 7.3.6)
 
 ### 7.3.6 数据备份与恢复
 
 ```bash
 # PostgreSQL 每日备份(crontab)
-0 3 * * * pg_dump -U jieqi -d jieqi | gzip > /backup/jieqi_$(date +\%F).sql.gz
-
+0 3 * * * pg_dump jieqi | gzip > /backup/jieqi_$(date +\%F).sql.gz
 # 恢复
-gunzip -c /backup/jieqi_2026-08-14.sql.gz | psql -U jieqi -d jieqi
+gunzip -c /backup/jieqi_2026-08-14.sql.gz | psql jieqi
 ```
 
-- 配置类数据(节气/作物/道具)在 `server/data/*.json`,**幂等可重建**,不依赖备份;
-- 玩家资产(金币/作物实例)是账本制(`coin_transactions`/`item_transactions`),余额可对账重建。
+> 配置类数据(植物/节气/道具)在 `server/data/` 文件里,随代码仓库版本化,天然可重建;DB 只需备份运行时数据。
 
 ### 7.3.7 上线检查清单
 
-- [ ] PostgreSQL 连接串正确,迁移已执行
-- [ ] 环境变量全部注入,无默认弱密钥
-- [ ] `DEBUG_ENABLED=false`、`ADMIN_ENABLED=false`
-- [ ] Nginx HTTPS 生效,WS 升级正常
-- [ ] systemd 服务 `Restart=always` 已启用
-- [ ] 备份定时任务已配置
-- [ ] 域名 ICP 备案完成(国内服务器)
+- [ ] 全套测试通过(`env -u PYTHONPATH uv run python -m pytest -q`)
+- [ ] 文档一致性校验通过(`uv run python -m scripts.verify_api_docs check`)
+- [ ] 管理后台登录/仪表盘可用,admin 密码已改
+- [ ] `/docs` OpenAPI 可达;`/v1/art/version` 返回正常
+- [ ] 演示数据清理(dev.db 不携带上线)
 
-# 8. 备注
+# 8. 术语表与常见问题
 
-- 开发默认账号:`admin / admin123`(仅本地开发,生产必须修改)
-- 测试库与开发库分离:测试用 `test.db`(conftest 自动重建),开发用 `dev.db`
-- Windows 开发注意:日志监控为只读文件流,无平台依赖;用 `scripts\run_server.ps1` 启动后端才会产生日志文件
+## 8.1 术语表(全文档统一叫法)
+
+| 术语 | 含义 | 对应英文/字段 |
+|---|---|---|
+| 节气 | 24 节气之一(1-24,立春…大寒) | term / term_index |
+| 地块 | 田地格子(4×5=20) | plot / idx |
+| 宜种窗 | 植物可播种的节气区间 | sow_window(start/end/grace) |
+| 宽限 | 宜种窗过后的额外可种轮次 | grace |
+| 收成仓 | 收获作物的暂存仓库 | CropStorage / storage |
+| 单株上限 | 单株卖价封顶 | max_value |
+| 世界秒 | 玩家世界时钟的累计时间 | world_accum |
+| 寄生 | 小虫害挂在地块上的倒计时 | PestTarget |
+| 附杂草 | 地块被杂草覆盖的状态 | weeded |
+
+## 8.2 常见问题
+
+**Q: 收获为什么不给金币?** 收成入仓,玩家到商店按当前季节价择机出售(秋 1.2 倍最赚)。防"种了立刻卖"与鼓励季节规划。
+
+**Q: 杂草怎么清除?** 玩家侧暂无需手动清除 —— 下一个节气的杂草生长会重新随机(旧杂草自动消失,存活不超过一个节气)。
+
+**Q: 改了植物 JSON 文件不生效?** 植物设定在服务启动时同步进 DB,改文件后需重启服务(或重跑 seed)。
+
+**Q: 玩家不在线,作物还长吗?** 生长走墙钟,一直长;但玩家世界(节气/季节)离线按 0.25× 减速 —— 枯萎/杂草/虫害等"季节驱动"事件因此也会变慢。
+
+**Q: 节气卡(term_lock)为什么用不了?** 该效果尚未实现(P1),道具可买但使用返回 `EFFECT_NOT_SUPPORTED`。

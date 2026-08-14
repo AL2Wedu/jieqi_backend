@@ -42,7 +42,10 @@ def test_dashboard(client):
 
 def test_users_and_ban(client):
     token, h = _admin_login(client)
-    client.post("/v1/auth/register", json={"name": "admin_test_user", "password": "pass123"})
+    reg = client.post(
+        "/v1/auth/register", json={"name": "admin_test_user", "password": "pass123"}
+    ).json()
+    player_token = reg["data"]["token"]
     r = client.get("/v1/admin/users", headers=h).json()
     assert r["code"] == 0
     target = next(u for u in r["data"]["items"] if u["name"] == "admin_test_user")
@@ -53,6 +56,11 @@ def test_users_and_ban(client):
     assert r["code"] == 0 and r["data"]["status"] == 0
     r = client.post("/v1/auth/login", json={"name": "admin_test_user", "password": "pass123"})
     assert r.json()["code"] != 0
+    # 已登录 token 同样即时失效(存量会话统一拦截)
+    r = client.get(
+        "/v1/player/me", headers={"Authorization": f"Bearer {player_token}"}
+    ).json()
+    assert r["code"] == 20004, r  # USER_BANNED
 
     # 解封 → 登录成功
     r = client.patch(f"/v1/admin/users/{uid}/status", json={"status": 1}, headers=h).json()

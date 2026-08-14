@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.db import SessionLocal
 from app.core.errors import AppError
 from app.core.security import decode_token, is_admin_token
-from app.models import Player
+from app.models import Player, User
 
 
 def get_db():
@@ -33,6 +33,10 @@ def get_current_player(
         raise AppError("UNAUTHORIZED", "登录已过期,请重新登录", http_status=401, code=10003)
     if not player:
         raise AppError("UNAUTHORIZED", "玩家不存在", http_status=401, code=10002)
+    # 封禁即时生效:已登录 token 同样拒绝(登录与存量会话统一拦截)
+    user = db.query(User).filter(User.id == player.user_id).first()
+    if user is not None and user.status != 1:
+        raise AppError("USER_BANNED", "账号已被封禁", http_status=403, code=20004)
     from app.services import world_service
 
     world_service.sync_world(db, player)  # 在线心跳 + 每用户世界时钟推进
