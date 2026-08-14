@@ -53,24 +53,50 @@ def extract_routes() -> list[tuple[str, str, str]]:
 
 
 def extract_error_codes() -> dict[str, tuple[str, int]]:
-    """返回 {code: (error_code, http_status)}。"""
+    """返回 {code: (error_code, http_status)}。
+
+    解析器按引号状态跳过字符串内容(含 f-string),再按括号深度截取每个
+    AppError(...) 调用,提取 name / code= / http_status=。
+    """
     codes: dict[str, tuple[str, int]] = {}
-    for f in (API_DIR / ".." / "services").glob("*.py"):
-        text = f.read_text(encoding="utf-8")
-        for m in re.finditer(
-            r'AppError\(\s*"([A-Z_]+)"\s*,\s*"[^"]*"\s*,\s*(?:http_status=(\d+)\s*,\s*)?code=(\d+)',
-            text,
-        ):
-            name, http, code = m.group(1), int(m.group(2) or 400), int(m.group(3))
-            codes[code] = (name, http)
-    for f in (API_DIR / ".." / "core").glob("*.py"):
-        text = f.read_text(encoding="utf-8")
-        for m in re.finditer(
-            r'AppError\(\s*"([A-Z_]+)"\s*,\s*"[^"]*"\s*,\s*(?:http_status=(\d+)\s*,\s*)?code=(\d+)',
-            text,
-        ):
-            name, http, code = m.group(1), int(m.group(2) or 400), int(m.group(3))
-            codes[code] = (name, http)
+
+    def _parse(text: str) -> None:
+        for m in re.finditer(r"AppError\(", text):
+            i = m.end()
+            depth, in_str, j = 1, False, i
+            while j < len(text) and depth > 0:
+                ch = text[j]
+                if in_str:
+                    if ch == "\\":
+                        j += 2
+                        continue
+                    if ch == '"':
+                        in_str = False
+                    j += 1
+                    continue
+                if ch == '"':
+                    in_str = True
+                    j += 1
+                    continue
+                if ch == "(":
+                    depth += 1
+                elif ch == ")":
+                    depth -= 1
+                j += 1
+            call = text[m.start():j]
+            name_m = re.search(r'AppError\(\s*"([A-Z_]+)"', call)
+            code_m = re.search(r"code=(\d+)", call)
+            http_m = re.search(r"http_status=(\d+)", call)
+            if name_m and code_m:
+                codes[int(code_m.group(1))] = (
+                    name_m.group(1),
+                    int(http_m.group(1)) if http_m else 400,
+                )
+
+    for folder in ("services", "core", "api"):
+        base = Path(__file__).resolve().parent.parent / "app" / folder
+        for f in sorted(base.glob("*.py")):
+            _parse(f.read_text(encoding="utf-8"))
     return codes
 
 
@@ -94,19 +120,24 @@ def inventory() -> None:
         print(f"  {code} | {name} | HTTP {http}")
 
 
+def _norm_path(p: str) -> str:
+    """路径归一化:{param}→{}、去查询串、去 /v1 前缀、去反斜杠转义。"""
+    p = re.sub(r"\{[^}]+\}", "{}", p)
+    p = re.sub(r"\?.*$", "", p)
+    p = p.replace("\\", "")
+    p = p.replace("/v1", "", 1) if p.startswith("/v1") else p
+    return p
+
+
 def _doc_routes() -> set[str]:
     api_md = (REPO / "API.md").read_text(encoding="utf-8")
     found = set(
-        re.findall(r"\|\s*\d+\s*\|\s*(?:GET|POST|PUT|PATCH|DELETE|WS)\s*\|\s*`(/[^`]+)`", api_md)
+        re.findall(
+            r"\|\s*(?:\d+|—)\s*\|\s*(?:GET|POST|PUT|PATCH|DELETE|WS)\s*\|\s*`(/[^`]+)`",
+            api_md,
+        )
     )
-
-    def norm(p: str) -> str:
-        p = re.sub(r"\{[^}]+\}", "{}", p)
-        p = re.sub(r"\?.*$", "", p)
-        p = p.replace("/v1", "", 1) if p.startswith("/v1") else p
-        return p
-
-    return {norm(p) for p in found}
+    return {_norm_path(p) for p in found}
 
 
 def check() -> int:
@@ -142,8 +173,14 @@ def check() -> int:
 
     # 3) 交叉引用:README 引用的 /v1/... 路径在 API.md 存在
     readme = (REPO / "README.md").read_text(encoding="utf-8")
-    refs = set(re.findall(r"`(/v1/[a-z0-9/{}_.\-]+)`", readme))
-    missing_ref = sorted(r for r in refs if re.sub(r"\{[^}]+\}", "{}", r) not in doc)
+    refs = set()
+    for m in re.finditer(r"`([^`]*/v1/[^`]*)`", readme):
+        for part in re.split(r"[|｜]", m.group(1)):
+            part = re.sub(r"^(GET|POST|PUT|PATCH|DELETE|WS)\s*", "", part.strip())
+            if part.startswith("/v1"):
+                refs.add(part)
+
+    missing_ref = sorted(r for r in refs if _norm_path(r) not in doc)
     if missing_ref:
         ok = False
         print(f"[FAIL] README 引用了文档中不存在的路径: {missing_ref}")
