@@ -64,3 +64,33 @@ server/app/static/assets/crops/<slug>/
 ```
 
 > slug 列表:baicai dacong dadou gaoliang guzi hongshu huasheng luobo mianhua qiaomai shuidao xiaomai youcai yumi zhima
+
+## 7. 24 节气图(节气切换/界面背景)
+
+同一个预渲染管线,按节气序号取图(与 `GET /v1/calendar/current` 返回的 `term_index` 一致):
+
+```
+GET /v1/art/terms/{term_index}.png?w=<目标宽度像素>
+```
+
+- `term_index`:**1-24**(1=立春 … 24=大寒,与节气轮转顺序一致)
+- `w`:同作物规则,取**最小不小于 w** 的预渲染档(32/64/128/256),超出取最大档
+- 响应:`image/png` + `Cache-Control: public, max-age=86400`
+- 越界(`0` / `>24`):`404`(`28001`)
+
+```json
+// 客户端用法:节气切换事件 payload.term_index → 直接取图
+GET /v1/art/terms/7.png?w=256      // 立夏大图(节气界面)
+GET /v1/art/terms/1.png?w=64       // 立春小图(图标)
+```
+
+节气图版本已并入素材版本接口(新增 `terms` 字段):
+
+```
+GET /v1/art/version
+→ { "version": "…", "crops": {"shuidao": "…", ...},
+    "terms": {"lichun": "…", "guyu": "…", ..., "dahan": "…"}, "sizes": [32,64,128,256] }
+```
+
+- `terms[slug]` 变 → 只刷新该节气图;`version` 变 → 全量刷新(节气图与作物图一起)
+- slug ↔ 节气名映射见 `app/core/svg_art.py` 的 `TERM_SLUGS`(lichun/yushui/jingzhe/…/dahan)

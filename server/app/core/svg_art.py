@@ -7,6 +7,16 @@
 from pathlib import Path
 
 ART_ROOT = Path(__file__).resolve().parent.parent / "static" / "assets" / "crops"
+TERM_ART_ROOT = Path(__file__).resolve().parent.parent / "static" / "assets" / "terms"
+
+# 节气序号 → slug(与 data/term_config.json 顺序一致,1=立春 ... 24=大寒)
+TERM_SLUGS = {
+    1: "lichun", 2: "yushui", 3: "jingzhe", 4: "chunfen", 5: "qingming", 6: "guyu",
+    7: "lixia", 8: "xiaoman", 9: "mangzhong", 10: "xiazhi", 11: "xiaoshu", 12: "dashu",
+    13: "liqiu", 14: "chushu", 15: "bailu", 16: "qiufen", 17: "hanlu", 18: "shuangjiang",
+    19: "lidong", 20: "xiaoxue", 21: "daxue", 22: "dongzhi", 23: "xiaohan", 24: "dahan",
+}
+TERM_SLUG_TO_INDEX = {v: k for k, v in TERM_SLUGS.items()}
 
 
 def _wrap(inner: str) -> str:
@@ -320,6 +330,23 @@ def prerender_all() -> dict:
     for slug in arts:
         ensure_prerendered(slug)
     return arts
+
+
+def ensure_terms_prerendered() -> None:
+    """确保 24 节气图的多分辨率 PNG 已预渲染(源 main.png → main_{size}.png)。"""
+    for slug in TERM_SLUGS.values():
+        d = TERM_ART_ROOT / slug
+        src = d / "main.png"
+        if not src.exists():
+            continue
+        for size in PRERENDER_SIZES:
+            out = d / f"main_{size}.png"
+            if out.exists():
+                continue
+            img = Image.open(src).convert("RGBA")
+            w, h = img.size
+            target_h = max(1, round(h * size / w))
+            img.resize((size, target_h), Image.LANCZOS).save(out, "PNG")
 
 
 # 6 种初始作物配色:slug -> (叶色, 果实色, 形态)

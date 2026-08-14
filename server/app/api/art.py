@@ -14,7 +14,14 @@ from fastapi import APIRouter, Query
 from fastapi.responses import FileResponse
 
 from app.core.errors import AppError, ok
-from app.core.svg_art import ART_ROOT, PRERENDER_SIZES, ensure_prerendered
+from app.core.svg_art import (
+    ART_ROOT,
+    PRERENDER_SIZES,
+    TERM_ART_ROOT,
+    TERM_SLUGS,
+    ensure_prerendered,
+    ensure_terms_prerendered,
+)
 
 router = APIRouter(prefix="/art", tags=["art"])
 
@@ -25,14 +32,18 @@ _VERSION_CACHE: dict = {"version": None, "mtime": 0, "updated_at": None}
 
 
 def _latest_mtime() -> int:
-    """素材目录最新修改时间(ns);含根目录与子目录条目(捕捉增删作物)。"""
-    m = ART_ROOT.stat().st_mtime_ns
-    for entry in os.scandir(ART_ROOT):
-        m = max(m, entry.stat().st_mtime_ns)
-        if entry.is_dir():
-            for f in os.scandir(entry.path):
-                m = max(m, f.stat().st_mtime_ns)
-    return m
+    """素材目录最新修改时间(ns);含根目录与子目录条目(捕捉增删作物/节气图)。"""
+
+    def _scan(root: Path) -> int:
+        m = root.stat().st_mtime_ns
+        for entry in os.scandir(root):
+            m = max(m, entry.stat().st_mtime_ns)
+            if entry.is_dir():
+                for f in os.scandir(entry.path):
+                    m = max(m, f.stat().st_mtime_ns)
+        return m
+
+    return max(_scan(ART_ROOT), _scan(TERM_ART_ROOT))
 
 
 def _file_hash(p: Path) -> str:
@@ -44,24 +55,34 @@ def _file_hash(p: Path) -> str:
 
 
 def _compute_versions() -> dict:
-    """逐作物内容哈希 + 全局版本。"""
-    crops = {}
-    for entry in sorted(ART_ROOT.iterdir()):
-        if not entry.is_dir():
-            continue
-        h = hashlib.md5()
-        for f in sorted(entry.glob("*")):
-            if f.is_file():
-                h.update(f.name.encode("utf-8"))
-                h.update(_file_hash(f).encode("ascii"))
-        crops[entry.name] = h.hexdigest()[:12]
+    """逐作物/逐节气内容哈希 + 全局版本。"""
+
+    def _dir_hashes(root: Path) -> dict:
+        out = {}
+        for entry in sorted(root.iterdir()):
+            if not entry.is_dir():
+                continue
+            h = hashlib.md5()
+            for f in sorted(entry.glob("*")):
+                if f.is_file():
+                    h.update(f.name.encode("utf-8"))
+                    h.update(_file_hash(f).encode("ascii"))
+            out[entry.name] = h.hexdigest()[:12]
+        return out
+
+    crops = _dir_hashes(ART_ROOT)
+    terms = _dir_hashes(TERM_ART_ROOT)
     global_h = hashlib.md5()
     for slug in sorted(crops):
         global_h.update(slug.encode("utf-8"))
         global_h.update(crops[slug].encode("ascii"))
+    for slug in sorted(terms):
+        global_h.update(("term:" + slug).encode("utf-8"))
+        global_h.update(terms[slug].encode("ascii"))
     return {
         "version": global_h.hexdigest()[:12],
         "crops": crops,
+        "terms": terms,
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
 
@@ -77,6 +98,7 @@ def art_version():
         {
             "version": _VERSION_CACHE["version"],
             "crops": _VERSION_CACHE["crops"],
+            "terms": _VERSION_CACHE["terms"],  # 节气图版本(前端缓存刷新用)
             "sizes": list(PRERENDER_SIZES),
             "updated_at": _VERSION_CACHE["updated_at"],
         }
@@ -104,6 +126,27 @@ def crop_art(
     f = d / f"{name}_{chosen}.png"
     if not f.exists():
         raise AppError("ART_NOT_FOUND", "美术档缺失", http_status=404, code=28001)
+    return FileResponse(
+        f,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@router.get("/terms/{term_index}.png")
+def term_art(
+    term_index: int,
+    w: int = Query(default=128, ge=8, le=1024, description="目标宽度像素,服务端选最近预渲染档"),
+):
+    """24 节气图:term_index 1-24(与 calendar 返回一致),同一预渲染管线。"""
+    slug = TERM_SLUGS.get(term_index)
+    if slug is None:
+        raise AppError("ART_NOT_FOUND", "节气不存在", http_status=404, code=28001)
+    ensure_terms_prerendered()  # 幂等:缺档自动补渲染
+    chosen = next((sz for sz in sorted(PRERENDER_SIZES) if sz >= w), max(PRERENDER_SIZES))
+    f = TERM_ART_ROOT / slug / f"main_{chosen}.png"
+    if not f.exists():
+        raise AppError("ART_NOT_FOUND", "节气图缺失", http_status=404, code=28001)
     return FileResponse(
         f,
         media_type="image/png",

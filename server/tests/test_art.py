@@ -68,3 +68,39 @@ def test_art_version():
         v5 = c.get("/v1/art/version").json()["data"]
         assert "version_test_crop" not in v5["crops"]
         assert v5["version"] == v1["version"]
+
+
+def test_term_art_endpoint():
+    """24 节气图:按 term_index 取图(与 calendar 一致)+ 版本字段。"""
+    with TestClient(app) as c:
+        # 立春(1)→ 200 + PNG;分辨率档位行为与作物一致
+        r = c.get("/v1/art/terms/1.png?w=128")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/png"
+        assert r.content[:8] == PNG_MAGIC
+        assert len(r.content) > 100
+        small = c.get("/v1/art/terms/1.png?w=32")
+        large = c.get("/v1/art/terms/1.png?w=256")
+        assert small.status_code == 200 and large.status_code == 200
+        assert len(large.content) > len(small.content)
+        # 大寒(24)也有
+        assert c.get("/v1/art/terms/24.png?w=64").status_code == 200
+        # 越界 → 404
+        assert c.get("/v1/art/terms/25.png?w=128").status_code == 404
+        assert c.get("/v1/art/terms/0.png?w=128").status_code == 404
+
+
+def test_art_version_has_terms():
+    """版本接口新增 terms 字段(节气图版本,前端缓存刷新用)。"""
+    with TestClient(app) as c:
+        r = c.get("/v1/art/version").json()
+        assert r["code"] == 0
+        terms = r["data"]["terms"]
+        assert set(terms) == {
+            "lichun", "yushui", "jingzhe", "chunfen", "qingming", "guyu",
+            "lixia", "xiaoman", "mangzhong", "xiazhi", "xiaoshu", "dashu",
+            "liqiu", "chushu", "bailu", "qiufen", "hanlu", "shuangjiang",
+            "lidong", "xiaoxue", "daxue", "dongzhi", "xiaohan", "dahan",
+        }
+        assert all(len(h) == 12 for h in terms.values())
+        assert "terms" in r["data"] and "crops" in r["data"]
