@@ -241,3 +241,46 @@ def test_admin_logs_ws(client):
         with client.websocket_connect("/v1/admin/logs?token=bad-token"):
             pass
     assert exc.value.code == 4401
+
+
+def test_admin_assets_edit_and_push(client, monkeypatch):
+    """资产编辑生效 + 向该玩家推送 resources_changed(强制客户端刷新)。"""
+    from app.services import admin_service
+
+    pushed = []
+
+    class _FakeManager:
+        def push_sync(self, player_id, message):
+            pushed.append((player_id, message))
+
+    monkeypatch.setattr(admin_service, "manager", _FakeManager())
+
+    r = client.post(
+        "/v1/auth/register", json={"name": "asset_push", "password": "pass123456"}
+    ).json()
+    assert r["code"] == 0
+    ph = {"Authorization": f"Bearer {r['data']['token']}"}
+    admin = client.post(
+        "/v1/admin/login", json={"username": "admin", "password": "admin123"}
+    ).json()
+    ah = {"Authorization": f"Bearer {admin['data']['token']}"}
+    users = client.get("/v1/admin/users?page_size=50", headers=ah).json()["data"]["items"]
+    uid = next(u["user_id"] for u in users if u["name"] == "asset_push")
+
+    # 编辑金币 + 等级
+    r = client.patch(
+        f"/v1/admin/users/{uid}/assets", json={"coins": 555, "level": 3}, headers=ah
+    ).json()
+    assert r["code"] == 0, r
+    assert r["data"]["coins"] == 555 and r["data"]["level"] == 3
+
+    # 玩家侧生效
+    me = client.get("/v1/player/me", headers=ph).json()["data"]
+    assert me["coins"] == 555 and me["level"] == 3
+
+    # WS 推送(类型 + 负载)
+    assert len(pushed) == 1
+    pid, msg = pushed[0]
+    assert msg["type"] == "resources_changed"
+    assert msg["payload"]["coins"] == 555 and msg["payload"]["level"] == 3
+    assert msg["payload"]["player_id"] == pid

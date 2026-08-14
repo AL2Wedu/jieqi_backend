@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -12,6 +13,7 @@ from app.api.router import api
 from app.core.db import SessionLocal, engine
 from app.core.errors import AppError
 from app.models import Base
+from app.ws import manager
 from scripts.seed import seed_if_empty
 
 logger = logging.getLogger("jieqi")
@@ -59,6 +61,7 @@ async def lifespan(app: FastAPI):
     init_db()
     with SessionLocal() as db:
         seed_if_empty(db)
+    manager.loop = asyncio.get_running_loop()  # 供同步 handler 线程安全推送(资源变更等)
     yield
 
 

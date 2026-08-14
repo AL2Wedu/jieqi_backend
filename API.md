@@ -791,6 +791,25 @@ GET /v1/art/crops/{slug}/{crop.stage}.png?w=128
 
 > 该流为**只读**,不暴露任何命令执行能力(无 RCE 面),生产环境可放心开放;后端由系统服务托管常驻。
 
+### 7.3 服务端主动推送事件(每用户定向,WS /v1/ws)
+
+除节气帧外,服务端会向**目标玩家的所有在线连接**主动推送以下事件;客户端收到后应**立即刷新对应资源**:
+
+| type | 触发场景 | payload | 客户端动作 |
+|---|---|---|---|
+| `resources_changed` | 管理后台编辑该玩家资产(金币/等级/经验/解锁节气) | `{player_id, name, level, exp, coins, unlocked_term_index}` | **强制刷新** `/v1/player/me` 并更新本地资源(此事件为资源权威变更,不依赖轮询) |
+| `pest_big` | 该玩家大虫害触发(音游对抗) | `{pest_id, type:"big", duration_seconds}` | 弹出音游界面,游玩结束后 POST `/v1/farm/pest/{pest_id}/result` |
+| `pest_small` | 该玩家小虫害寄生(含大虫害未达标的惩罚寄生) | `{pest_id, type:"small", targets:[{pest_id, plot_id, idx, crop, stage, wait_seconds, ready_at}]}` | 标红目标地块,倒计时;驱赶 POST `/v1/farm/pest/{pest_id}/drive-away` |
+| `pest_destroyed` | 寄生倒计时到点,作物被摧毁 | `{targets:[{pest_id, plot_id}]}` | 刷新对应地块(作物已消失) |
+
+```json
+{ "type": "resources_changed", "payload": { "player_id": "…", "name": "demo01", "level": 5, "exp": 120, "coins": 666, "unlocked_term_index": 6 }, "ts": 1784000000 }
+```
+
+- 事件都带 `ts`(unix 秒);未知事件类型一律**忽略**(向前兼容)
+- 玩家不在线时推送静默丢弃,客户端下次登录/轮询自然收敛
+- 管理端其他资源编辑(背包/收成仓/地块作物)按同一模式推送,事件类型另行约定
+
 ---
 
 ## 8. 数据对象速查

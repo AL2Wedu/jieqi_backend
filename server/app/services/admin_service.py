@@ -1,5 +1,6 @@
 """管理后台业务逻辑:统计 / 用户 / 全局配置 / 作物 / 道具 / 节气与时钟。"""
 import os
+import time
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -27,6 +28,7 @@ from app.models import (
 )
 from app.services import shop_service
 from app.services import calendar_service, farm_service, world_service
+from app.ws import manager
 from scripts.seed import crop_uuid, item_uuid
 
 _SENSITIVE_ENV = ("password", "secret", "token", "auth", "key", "credential")
@@ -657,13 +659,25 @@ def _player_by_user(db: Session, user_id: str) -> Player:
 
 
 def update_player_assets(db: Session, user_id: str, data: dict) -> dict:
-    """玩家资产编辑:金币 / 等级 / 经验 / 解锁节气(全可选)。"""
+    """玩家资产编辑:金币 / 等级 / 经验 / 解锁节气(全可选)。
+
+    编辑后向该玩家在线 WS 推送 resources_changed,客户端据此强制刷新本地资源。
+    """
     player = _player_by_user(db, user_id)
     for field in ("coins", "level", "exp", "unlocked_term_index"):
         if field in data and data[field] is not None:
             setattr(player, field, data[field])
     db.commit()
-    return get_player_assets(db, user_id)
+    assets = get_player_assets(db, user_id)
+    manager.push_sync(
+        str(player.id),
+        {
+            "type": "resources_changed",
+            "payload": assets,
+            "ts": int(time.time()),
+        },
+    )
+    return assets
 
 
 def get_player_assets(db: Session, user_id: str) -> dict:

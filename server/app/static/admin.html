@@ -320,7 +320,7 @@ async function saveAssets(uid) {
   const ids = [['a-coins','coins'], ['a-level','level'], ['a-exp','exp'], ['a-term','unlocked_term_index']];
   const payload = {};
   for (const [id, key] of ids) {
-    const v = $(id).value;
+    const v = $('#' + id).value;  // $ 是 querySelector,必须带 '#'
     if (v !== '') payload[key] = parseInt(v, 10);
   }
   try { await api('/users/' + uid + '/assets', 'PATCH', payload); closeModal(); toast('资产已更新'); loadView(); }
