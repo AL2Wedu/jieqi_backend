@@ -575,6 +575,11 @@ function openCropEdit(c) {
       <div class="form-field"><label>基础产量</label><input class="inp" type="number" min="1" id="cr-yield" value="${c?c.yield_base:3}"></div>
       <div class="form-field"><label>基础单价(金币)</label><input class="inp" type="number" min="1" id="cr-price" value="${c?c.base_price:10}"></div>
     </div>
+    <div class="form-row">
+      <div class="form-field"><label>解锁等级(0=不限)</label><input class="inp" type="number" min="0" id="cr-ul" value="${c?(c.unlock_level??1):1}"></div>
+      <div class="form-field"><label>解锁经验(0=不限)</label><input class="inp" type="number" min="0" id="cr-ue" value="${c?(c.unlock_exp??0):0}"></div>
+    </div>
+    <div class="form-field" style="margin-top:10px"><label>高级设定 JSON(枯萎季节/加速季节/需水/需肥/单株上限,详见 data/crops/_template.json)</label><textarea class="inp mono" rows="6" id="cr-settings">${esc(c ? JSON.stringify(c.settings||{}, null, 2) : '{\n  "wither_seasons": ["winter"],\n  "fast_growth_seasons": { "summer": 1.5 },\n  "water_need": { "min": 50, "ideal": 80 },\n  "fertility_need": 1,\n  "max_value": 30\n}')}</textarea></div>
     <div class="form-field"><label>描述(农谚/百科)</label><input class="inp" id="cr-desc" value="${c?esc(c.description||''):''}"></div>
     <div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">
       <div style="font-size:12px;color:var(--text-2);margin-bottom:8px">美术资产(URL 或 /static 路径,三阶段按生长阶段展示)</div>
@@ -595,9 +600,13 @@ async function saveCrop() {
     name: $('#cr-name').value.trim(), category: $('#cr-cat').value,
     sow_window: { type: 'term', start: +$('#cr-s').value, end: +$('#cr-e').value, grace: +$('#cr-g').value },
     grow_seconds: +$('#cr-grow').value, yield_base: +$('#cr-yield').value, base_price: +$('#cr-price').value,
+    unlock_level: +$('#cr-ul').value, unlock_exp: +$('#cr-ue').value,
     description: $('#cr-desc').value.trim(),
     art: { seed: $('#cr-art-seed').value.trim(), stages: [$('#cr-art-1').value.trim(), $('#cr-art-2').value.trim(), $('#cr-art-3').value.trim()] },
   };
+  // 高级设定:非法 JSON 不提交(弹提示)
+  try { payload.settings = JSON.parse($('#cr-settings').value || '{}'); }
+  catch (err) { toast('高级设定 JSON 格式错误: ' + err.message, 'err'); return; }
   if (cropDraft) {
     try { await api(`/crops/${cropDraft.crop_id}`, 'PUT', payload); toast('已保存'); }
     catch (err) { toast(err.message, 'err'); return; }

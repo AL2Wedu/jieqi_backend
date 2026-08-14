@@ -303,6 +303,14 @@
         "stage": 1,
         "growth_progress": 12,
         "water_level": 100,
+        "water_need": 60,   // 需水红线(低于则生长停滞)
+        "settings": {       // 植物高级设定(枯萎季节/加速/需水/需肥/单株上限)
+          "wither_seasons": ["winter"],
+          "fast_growth_seasons": { "summer": 1.5 },
+          "water_need": { "min": 60, "ideal": 90 },
+          "fertility_need": 1,
+          "max_value": 30
+        },
         "predicted_harvest_at": "2026-08-13T12:15:00+00:00"
       }
     }
@@ -801,6 +809,7 @@ GET /v1/art/crops/{slug}/{crop.stage}.png?w=128
 | `pest_big` | 该玩家大虫害触发(音游对抗) | `{pest_id, type:"big", duration_seconds}` | 弹出音游界面,游玩结束后 POST `/v1/farm/pest/{pest_id}/result` |
 | `pest_small` | 该玩家小虫害寄生(含大虫害未达标的惩罚寄生) | `{pest_id, type:"small", targets:[{pest_id, plot_id, idx, crop, stage, wait_seconds, ready_at}]}` | 标红目标地块,倒计时;驱赶 POST `/v1/farm/pest/{pest_id}/drive-away` |
 | `pest_destroyed` | 寄生倒计时到点,作物被摧毁 | `{targets:[{pest_id, plot_id}]}` | 刷新对应地块(作物已消失) |
+| `crop_withered` | 玩家季节进入植物枯萎季节,作物枯萎 | `{targets:[{plot_id, idx, crop_name}]}` | 刷新对应地块(作物已消失)+ 弹枯萎提示 |
 
 ```json
 { "type": "resources_changed", "payload": { "player_id": "…", "name": "demo01", "level": 5, "exp": 120, "coins": 666, "unlocked_term_index": 6 }, "ts": 1784000000 }
@@ -867,6 +876,20 @@ GET /v1/art/version  →  data: {
 - 版本 = 素材文件内容哈希(管理后台新增/修改作物、替换美术文件后自动变化,无需重启)
 - 服务端带 mtime 缓存,轮询开销极小
 
+### 8.4 植物设定文件(data/crops/<slug>.json)
+
+每株植物一个 JSONC 文件(支持 `//` 注释),是植物设定的**事实源**,启动/重跑 seed 时幂等同步到 DB(`crops` 表新增 `unlock_exp` + `settings` 列)。修改文件 → 重启服务即生效。
+
+- `data/crops/_template.json`:全字段注释模板(复制即可新增植物)
+- 字段:`slug / name / category / sort_order / sow_window / grow_seconds / yield_base / base_price / unlock_level / unlock_exp / settings / art(可选)/ note`
+- `settings` 含义:
+  - `wither_seasons`: 玩家世界进入这些季节(spring/summer/autumn/winter)时,未收获的该植物枯萎(WS 推 `crop_withered`,farm state 返回 `wither_events`)
+  - `fast_growth_seasons`: `{季节: 倍率}` —— 在该季节播种 → 生长速度 × 倍率(成熟时间缩短;sow 响应含 `grow_seconds_eff`/`season_boost`)
+  - `water_need`: `{min, ideal}` —— 水分每节气 -10,低于 `min` 生长停滞
+  - `fertility_need`: 土壤肥力低于该值 → 收成减产 ×(soil/need)
+  - `max_value`: 单株卖价上限(金币),0 = 不封顶
+- 管理后台"作物管理"新增/编辑植物时自动写回文件
+
 ---
 
 ## 9. 错误码全表
@@ -891,6 +914,7 @@ GET /v1/art/version  →  data: {
 | 21006 | CROP_EXISTS | 400 | 作物重名(管理端新增) |
 | 21006 | NOT_ENOUGH_ITEM | 400 | 种子不足(播种时) |
 | 21007 | CROP_IN_USE | 400 | 有种植中的作物,无法删除 |
+| 21008 | CROP_LOCKED | 400 | 植物未解锁(经验/等级未达其一) |
 | 22001 | NOT_ENOUGH_ITEM | 400 | 道具数量不足 |
 | 22002 | ITEM_NOT_FOUND | 400 | 道具/商品不存在 |
 | 22003 | NOT_ENOUGH_COINS | 400 | 金币不足 |

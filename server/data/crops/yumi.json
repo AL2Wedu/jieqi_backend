@@ -1,0 +1,21 @@
+{
+  // 玉米(yumi)—— 设定见 _template.json 注释;改完重启或重跑 seed 生效
+  "slug": "yumi",
+  "name": "玉米",
+  "category": "谷物",
+  "sort_order": 6,
+  "sow_window": { "type": "term", "start": 5, "end": 8, "grace": 1 },
+  "grow_seconds": 320,
+  "yield_base": 7,
+  "base_price": 25,
+  "unlock_level": 3,      // 解锁等级;0 = 不限制
+  "unlock_exp": 80,        // 解锁经验;0 = 不限制
+  "settings": {
+    "wither_seasons": ["winter"],
+    "fast_growth_seasons": { "summer": 1.5 },
+    "water_need": { "min": 55, "ideal": 85 },
+    "fertility_need": 2,
+    "max_value": 38
+  },
+  "note": "需水偏多,夏季加速"
+}

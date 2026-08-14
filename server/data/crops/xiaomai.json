@@ -1,0 +1,21 @@
+{
+  // 小麦(xiaomai)—— 设定见 _template.json 注释;改完重启或重跑 seed 生效
+  "slug": "xiaomai",
+  "name": "小麦",
+  "category": "谷物",
+  "sort_order": 2,
+  "sow_window": { "type": "term", "start": 9, "end": 11, "grace": 1 },
+  "grow_seconds": 300,
+  "yield_base": 6,
+  "base_price": 20,
+  "unlock_level": 1,      // 解锁等级;0 = 不限制
+  "unlock_exp": 10,        // 解锁经验;0 = 不限制
+  "settings": {
+    "wither_seasons": ["summer"],
+    "fast_growth_seasons": { "spring": 1.5 },
+    "water_need": { "min": 40, "ideal": 70 },
+    "fertility_need": 2,
+    "max_value": 30
+  },
+  "note": "秋播越冬,春季返青加速,夏天收割"
+}

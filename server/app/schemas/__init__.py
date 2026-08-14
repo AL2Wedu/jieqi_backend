@@ -103,6 +103,8 @@ class AdminCropPayload(BaseModel):
     yield_base: int | None = None
     base_price: int | None = None
     unlock_level: int | None = None
+    unlock_exp: int | None = Field(default=None, ge=0)
+    settings: dict | None = None
     description: str | None = None
     art: dict | None = None
     sort_order: int | None = None

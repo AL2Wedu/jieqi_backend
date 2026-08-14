@@ -36,3 +36,16 @@ def _isolate_art():
     art_mod.ART_ROOT = real
     art_mod._VERSION_CACHE.update({"version": None, "mtime": 0, "updated_at": None})
     shutil.rmtree(tmp, ignore_errors=True)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def _isolate_crops_data():
+    """植物设定文件隔离:测试内管理后台增改作物写临时副本,不污染真实 data/crops/。"""
+    from scripts import crop_loader
+
+    real = crop_loader.CROPS_DIR
+    tmp = Path(tempfile.mkdtemp(prefix="hermes_test_crops_"))
+    shutil.copytree(real, tmp, dirs_exist_ok=True)
+    crop_loader.CROPS_DIR = tmp
+    yield
+    shutil.rmtree(tmp, ignore_errors=True)

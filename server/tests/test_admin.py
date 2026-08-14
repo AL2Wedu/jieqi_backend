@@ -210,6 +210,8 @@ def test_terms_and_clock(client):
 
     r = client.put("/v1/admin/terms/1", json={"duration_seconds": 600}, headers=h).json()
     assert r["code"] == 0 and r["data"]["duration_seconds"] == 600
+    # 还原时长(避免污染后续用例的节气边界)
+    client.put("/v1/admin/terms/1", json={"duration_seconds": 300}, headers=h)
 
     r = client.put(
         "/v1/admin/clock", json={"time_scale": 2.0, "paused": True}, headers=h

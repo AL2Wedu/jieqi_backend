@@ -18,10 +18,27 @@ from app.models import (
 from app.services import world_service
 
 _SEASON_TERMS = {1: (1, 6), 2: (7, 12), 3: (13, 18), 4: (19, 24)}  # 春/夏/秋/冬
+_SEASON_NAMES = {1: "spring", 2: "summer", 3: "autumn", 4: "winter"}
 
 FARM_COLS = 4  # 田地格子:横 4
 FARM_ROWS = 5  # 竖 5
 # 格子编号规则:idx 1-20,按行优先 —— idx = (row-1)*4 + col (row∈1..5, col∈1..4)
+
+_WATER_DECAY_PER_TERM = 10  # 水分随世界时间衰减:每节气 -10
+
+
+def season_name(term_index: int) -> str:
+    """节气序号 → 季节名(spring/summer/autumn/winter)。"""
+    return _SEASON_NAMES.get((term_index - 1) // 6 + 1, "spring")
+
+
+def _avg_term_duration(db: Session) -> float:
+    from app.models import TermConfig
+
+    rows = db.query(TermConfig).all()
+    if not rows:
+        return 300.0
+    return sum(t.duration_seconds for t in rows) / len(rows)
 
 
 def _get_farm(db: Session, player) -> Farm:
@@ -54,28 +71,98 @@ def _get_active_crop(db: Session, player, plot_id: str) -> CropInstance:
 
 def crop_view(ci: CropInstance, crop: Crop | None) -> dict:
     now = datetime.now(timezone.utc)
-    grow = crop.grow_seconds if crop else 0
+    settings = (crop.settings if crop else {}) or {}
+    grow_base = crop.grow_seconds if crop else 0
+    # 有效生长时长:加速季节播种时已按倍率缩短(播种时快照)
+    grow = float((ci.extra or {}).get("grow_seconds_eff") or grow_base) or 1.0
     sowed = ensure_aware(ci.sowed_at)
     base = (now - sowed).total_seconds() / grow * 100 if grow else 0.0
     boost = float((ci.extra or {}).get("boost_pct", 0))
     progress = min(100.0, base + boost)
+
+    # 水分衰减(基准 = 存储 water_level,自上次浇水/播种起每节气 -10)+ 生长停滞(跌破需水红线冻结)
+    term_dur = float((ci.extra or {}).get("term_dur") or 300.0)
+    watered_raw = (ci.extra or {}).get("watered_at")
+    water_start = (
+        ensure_aware(datetime.fromisoformat(watered_raw)) if watered_raw else sowed
+    )
+    base_water = max(0, ci.water_level or 0)
+    elapsed_terms = max(0.0, (now - water_start).total_seconds()) / term_dur
+    water_eff = int(max(0, round(base_water - elapsed_terms * _WATER_DECAY_PER_TERM)))
+    wmin = int(((settings.get("water_need") or {}).get("min", 0)) or 0)
+    wmin = min(wmin, 100)
+    if wmin > 0 and base_water > wmin:
+        # 红线时刻 = 水分从基准衰减到 min 的时刻;此后进度冻结在那一刻
+        stall_at = water_start + timedelta(
+            seconds=term_dur * ((base_water - wmin) / _WATER_DECAY_PER_TERM)
+        )
+        if now > stall_at:
+            stalled = (stall_at - sowed).total_seconds() / grow * 100
+            progress = min(progress, stalled)
+
     stage = 3 if progress >= 100 else (2 if progress >= 50 else 1)
     return {
         "crop_id": str(ci.crop_id),
         "name": crop.name if crop else "?",
         "art": (crop.art if crop else {}) or {},
+        "settings": settings,  # 植物高级设定(客户端展示需水/枯萎季节等)
         "stage": stage,
         "growth_progress": int(progress),
-        "water_level": ci.water_level,
+        "water_level": water_eff,
+        "water_need": wmin,
         "predicted_harvest_at": (
             ci.predicted_harvest_at.isoformat() if ci.predicted_harvest_at else None
         ),
     }
 
 
+def check_wither(db: Session, player, now: datetime | None = None) -> list[dict]:
+    """枯萎判定:玩家当前季节进入作物的枯萎季节 → 未收获作物枯萎(幂等落库)。
+
+    返回本次枯萎的事件列表(供 WS 推送 / 状态响应提示)。
+    """
+    now = now or datetime.now(timezone.utc)
+    farm = _get_farm(db, player)
+    plot_ids = [p.id for p in db.query(Plot).filter(Plot.farm_id == farm.id).all()]
+    if not plot_ids:
+        return []
+    season = season_name(world_service.current_term(db, player)[0].term_index)
+    rows = (
+        db.query(CropInstance, Crop)
+        .join(Crop, Crop.id == CropInstance.crop_id)
+        .filter(
+            CropInstance.plot_id.in_(plot_ids),
+            CropInstance.harvested_at.is_(None),
+            CropInstance.destroyed_at.is_(None),
+        )
+        .all()
+    )
+    events = []
+    for ci, crop in rows:
+        settings = (crop.settings or {}) or {}
+        if season in (settings.get("wither_seasons") or []):
+            extra = dict(ci.extra or {})
+            extra["destroyed_reason"] = "wither"
+            ci.extra = extra
+            ci.destroyed_at = now
+            plot = db.query(Plot).filter(Plot.id == ci.plot_id).first()
+            events.append(
+                {
+                    "plot_id": str(ci.plot_id),
+                    "idx": plot.idx if plot else None,
+                    "crop_name": crop.name,
+                }
+            )
+    if events:
+        db.commit()
+    return events
+
+
 def get_farm_state(db: Session, player) -> dict:
     farm = _get_farm(db, player)
     plots = db.query(Plot).filter(Plot.farm_id == farm.id).order_by(Plot.idx).all()
+    # 枯萎判定(当前季节 ∈ 作物枯萎季节 → 销毁),再取活动作物
+    wither_events = check_wither(db, player)
     active = (
         db.query(CropInstance)
         .filter(
@@ -107,6 +194,7 @@ def get_farm_state(db: Session, player) -> dict:
             "grid": {"cols": FARM_COLS, "rows": FARM_ROWS},  # 4×5,idx 行优先
         },
         "current_term": world_service.current_calendar(db, player),
+        "wither_events": wither_events,  # 本次读取时枯萎的作物(客户端弹提示)
         "plots": plot_list,
     }
 
@@ -155,6 +243,15 @@ def sow(db: Session, player, plot_id: str, crop_id: str) -> dict:
         raise AppError(
             "CROP_NOT_AVAILABLE", f"当前节气({term.name})不适合种植{crop.name}", code=21003
         )
+    # 解锁校验:经验或等级达到其一即可(两者均为 0 = 无门槛)
+    exp_ok = crop.unlock_exp <= 0 or player.exp >= crop.unlock_exp
+    lvl_ok = crop.unlock_level <= 0 or player.level >= crop.unlock_level
+    if not (exp_ok or lvl_ok):
+        raise AppError(
+            "CROP_LOCKED",
+            f"{crop.name}需等级 {crop.unlock_level} 或经验 {crop.unlock_exp} 解锁",
+            code=21008,
+        )
 
     # 消耗种子:effect.type=seed 且 crop_id 匹配
     seed = None
@@ -175,12 +272,24 @@ def sow(db: Session, player, plot_id: str, crop_id: str) -> dict:
 
     now = datetime.now(timezone.utc)
     ui.quantity -= 1
+    # 加速季节:在该季节播种 → 生长速度 × 倍率(有效生长时长 = 基础 / 倍率)
+    settings = (crop.settings or {}) or {}
+    fgs = settings.get("fast_growth_seasons") or {}
+    season = season_name(term.term_index)
+    factor = float(fgs.get(season, 1.0) or 1.0)
+    grow_eff = crop.grow_seconds
+    extra = {"term_dur": _avg_term_duration(db)}
+    if factor > 1.0:
+        grow_eff = max(60, int(crop.grow_seconds / factor))
+        extra["grow_seconds_eff"] = grow_eff
+        extra["boost_reason"] = f"fast_season:{season}:x{factor}"
     ci = CropInstance(
         plot_id=plot.id,
         crop_id=crop.id,
         sowed_at=now,
         sowed_term_index=term.term_index,
-        predicted_harvest_at=now + timedelta(seconds=crop.grow_seconds),
+        predicted_harvest_at=now + timedelta(seconds=grow_eff),
+        extra=extra,
     )
     db.add(ci)
     db.add(ItemTransaction(player_id=player.id, item_id=seed.id, delta=-1, reason="sow", ref_id=ci.id))
@@ -191,12 +300,17 @@ def sow(db: Session, player, plot_id: str, crop_id: str) -> dict:
         "crop_name": crop.name,
         "sowed_term_index": term.term_index,
         "predicted_harvest_at": ci.predicted_harvest_at.isoformat(),
+        "grow_seconds_eff": grow_eff,
+        "season_boost": factor if factor > 1.0 else None,
     }
 
 
 def water(db: Session, player, plot_id: str) -> dict:
     ci = _get_active_crop(db, player, plot_id)
     ci.water_level = 100
+    extra = dict(ci.extra or {})
+    extra["watered_at"] = datetime.now(timezone.utc).isoformat()  # 水分衰减从此刻重新计时
+    ci.extra = extra
     db.commit()
     return {"plot_id": plot_id, "water_level": 100}
 
@@ -208,13 +322,20 @@ def harvest(db: Session, player, plot_id: str) -> dict:
     view = crop_view(ci, crop)
     if view["stage"] < 3:
         raise AppError("CROP_NOT_MATURE", "作物尚未成熟", code=23001)
-    yield_actual = int(round(crop.yield_base * (1 + 0.1 * (plot.soil_quality - 1))))
+    settings = (crop.settings or {}) or {}
+    # 产量 = 基础 × (1 + 0.1×(肥力-1));土壤肥力低于需肥力 → 减产 ×(soil/need)
+    y = crop.yield_base * (1 + 0.1 * (plot.soil_quality - 1))
+    fert_need = max(1, int(settings.get("fertility_need") or 1))
+    if plot.soil_quality < fert_need:
+        y *= plot.soil_quality / fert_need
+    yield_actual = int(round(max(1.0, y)))
     now = datetime.now(timezone.utc)
     ci.harvested_at = now
     ci.yield_actual = yield_actual
     ci.term_bonus_applied = {
         "sowed_term": ci.sowed_term_index,
         "soil_quality": plot.soil_quality,
+        "fertility_need": fert_need,
         "yield": yield_actual,
     }
     # 收成入仓(不直接结算金币):玩家到商店按当前季节价择机出售

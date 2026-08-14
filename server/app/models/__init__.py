@@ -172,8 +172,10 @@ class Crop(Base):
     yield_base: Mapped[int] = mapped_column(Integer)
     base_price: Mapped[int] = mapped_column(Integer)
     unlock_level: Mapped[int] = mapped_column(SmallInteger, default=1)
+    unlock_exp: Mapped[int] = mapped_column(Integer, default=0)  # 解锁经验(0=不限制)
     description: Mapped[str | None] = mapped_column(String(255), nullable=True)
     art: Mapped[dict] = mapped_column(JSON, default=dict)  # {"seed":path, "stages":[3个阶段图]}
+    settings: Mapped[dict] = mapped_column(JSON, default=dict)  # 植物高级设定(wither/加速/需水/需肥/单株上限)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

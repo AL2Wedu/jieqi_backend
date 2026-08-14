@@ -66,7 +66,7 @@ def _item_price(item: Item, settings: ShopSettings, row: UserShopItem | None) ->
 def _crop_price(crop: Crop, settings: ShopSettings, season: str) -> int:
     se = settings.season_effect or {}
     ce = settings.category_factor or {}
-    return max(
+    price = max(
         1,
         round(
             crop.base_price
@@ -75,6 +75,11 @@ def _crop_price(crop: Crop, settings: ShopSettings, season: str) -> int:
             * ce.get(crop.category, 1.0)
         ),
     )
+    # 单株价值上限:作物设定 settings.max_value(0 = 不封顶)
+    maxv = int((crop.settings or {}).get("max_value", 0) or 0)
+    if maxv > 0:
+        price = min(price, maxv)
+    return price
 
 
 def ensure_shop(db: Session, player: Player) -> UserShop:

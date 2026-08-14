@@ -1,0 +1,21 @@
+{
+  // 红薯(hongshu)—— 设定见 _template.json 注释;改完重启或重跑 seed 生效
+  "slug": "hongshu",
+  "name": "红薯",
+  "category": "蔬菜",
+  "sort_order": 14,
+  "sow_window": { "type": "term", "start": 5, "end": 7, "grace": 1 },
+  "grow_seconds": 380,
+  "yield_base": 7,
+  "base_price": 20,
+  "unlock_level": 4,      // 解锁等级;0 = 不限制
+  "unlock_exp": 120,        // 解锁经验;0 = 不限制
+  "settings": {
+    "wither_seasons": ["winter"],
+    "fast_growth_seasons": { "summer": 1.4 },
+    "water_need": { "min": 45, "ideal": 75 },
+    "fertility_need": 2,
+    "max_value": 30
+  },
+  "note": "周期长产量高"
+}

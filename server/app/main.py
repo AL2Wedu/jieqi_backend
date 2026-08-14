@@ -22,6 +22,7 @@ logger = logging.getLogger("jieqi")
 def init_db() -> None:
     Base.metadata.create_all(engine)
     _ensure_player_world_columns()
+    _ensure_crop_columns()
 
 
 def _ensure_player_world_columns() -> None:
@@ -54,6 +55,19 @@ def _ensure_player_world_columns() -> None:
             )
     except Exception as e:  # noqa: BLE001
         logger.warning("crop_instances 摧毁列迁移跳过: %s", e)
+
+
+def _ensure_crop_columns() -> None:
+    """老 dev.db 无作物高级设定列:幂等 ALTER 补齐。"""
+    try:
+        cols = {c["name"] for c in inspect(engine).get_columns("crops")}
+        with engine.begin() as conn:
+            if "unlock_exp" not in cols:
+                conn.execute(text("ALTER TABLE crops ADD COLUMN unlock_exp INTEGER DEFAULT 0"))
+            if "settings" not in cols:
+                conn.execute(text("ALTER TABLE crops ADD COLUMN settings JSON"))
+    except Exception as e:
+        logger.warning("crops 高级设定列迁移跳过: %s", e)
 
 
 @asynccontextmanager

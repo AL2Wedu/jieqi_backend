@@ -22,7 +22,7 @@ from app.api import (
 from app.core.db import SessionLocal
 from app.core.security import decode_token
 from app.models import Player
-from app.services import world_service
+from app.services import farm_service, world_service
 from app.ws import manager
 
 api = APIRouter(prefix="/v1")
@@ -109,6 +109,8 @@ async def ws_endpoint(websocket: WebSocket, token: str = Query(default="")):
                     event = None
                 # 2) 小虫害倒计时到点摧毁
                 destroyed = pest_service.check_expiry(db, player)
+                # 3) 枯萎判定:玩家季节进入作物枯萎季节 → 销毁
+                withered = farm_service.check_wither(db, player)
             if event:
                 await manager.send_to_player(player_id, event)
             if destroyed:
@@ -117,6 +119,15 @@ async def ws_endpoint(websocket: WebSocket, token: str = Query(default="")):
                     {
                         "type": "pest_destroyed",
                         "payload": {"targets": destroyed},
+                        "ts": int(time.time()),
+                    },
+                )
+            if withered:
+                await manager.send_to_player(
+                    player_id,
+                    {
+                        "type": "crop_withered",
+                        "payload": {"targets": withered},
                         "ts": int(time.time()),
                     },
                 )

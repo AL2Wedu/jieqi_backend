@@ -187,6 +187,8 @@ def _crop_view(c: Crop) -> dict:
         "yield_base": c.yield_base,
         "base_price": c.base_price,
         "unlock_level": c.unlock_level,
+        "unlock_exp": c.unlock_exp,
+        "settings": c.settings or {},
         "description": c.description,
         "art": c.art or {},
         "sort_order": c.sort_order,
@@ -263,6 +265,8 @@ def create_crop(db: Session, data: dict, auto_seed: bool = False) -> dict:
         yield_base=int(data.get("yield_base", 3)),
         base_price=int(data.get("base_price", 10)),
         unlock_level=int(data.get("unlock_level", 1)),
+        unlock_exp=int(data.get("unlock_exp", 0)),
+        settings=data.get("settings") or {},
         description=data.get("description"),
         sort_order=int(data.get("sort_order", 0)),
     )
@@ -290,6 +294,28 @@ def create_crop(db: Session, data: dict, auto_seed: bool = False) -> dict:
     db.commit()
     view = _crop_view(crop)
     view["seed_created"] = seed_created
+    # 同步写回植物设定文件(data/crops/<slug>.json),保持文件为事实源
+    try:
+        from scripts.crop_loader import dump_crop_file
+
+        dump_crop_file(
+            {
+                "slug": crop.id.hex[:8],
+                "name": crop.name,
+                "category": crop.category,
+                "sort_order": crop.sort_order,
+                "sow_window": crop.sow_window,
+                "grow_seconds": crop.grow_seconds,
+                "yield_base": crop.yield_base,
+                "base_price": crop.base_price,
+                "unlock_level": crop.unlock_level,
+                "unlock_exp": crop.unlock_exp,
+                "settings": crop.settings or {},
+                "note": "管理后台新建(文件为事实源,可直接改)",
+            }
+        )
+    except Exception:
+        pass  # 文件写失败不影响后台操作(下次 seed 会从 DB 无法回写,提示团队注意)
     return view
 
 
@@ -308,6 +334,8 @@ def update_crop(db: Session, crop_id: str, data: dict) -> dict:
         "yield_base",
         "base_price",
         "unlock_level",
+        "unlock_exp",
+        "settings",
         "description",
         "art",
         "sort_order",
@@ -316,6 +344,28 @@ def update_crop(db: Session, crop_id: str, data: dict) -> dict:
         if field in data:
             setattr(crop, field, data[field])
     db.commit()
+    # 同步写回植物设定文件(保持文件为事实源)
+    try:
+        from scripts.crop_loader import dump_crop_file
+
+        dump_crop_file(
+            {
+                "slug": crop.id.hex[:8],
+                "name": crop.name,
+                "category": crop.category,
+                "sort_order": crop.sort_order,
+                "sow_window": crop.sow_window,
+                "grow_seconds": crop.grow_seconds,
+                "yield_base": crop.yield_base,
+                "base_price": crop.base_price,
+                "unlock_level": crop.unlock_level,
+                "unlock_exp": crop.unlock_exp,
+                "settings": crop.settings or {},
+                "note": "管理后台更新(文件为事实源,可直接改)",
+            }
+        )
+    except Exception:
+        pass
     return _crop_view(crop)
 
 
@@ -828,6 +878,7 @@ def admin_set_plot_crop(db: Session, user_id: str, plot_idx: int, data: dict) ->
         sowed_term_index=term.term_index,
         water_level=water_level,
         predicted_harvest_at=now + timedelta(seconds=grow * (1 - progress / 100.0)),
+        extra={"watered_at": now.isoformat()},  # 水分衰减从管理端设定时刻重新计时
     )
     db.add(ci)
     db.commit()
@@ -862,6 +913,9 @@ def admin_set_plot_growth(db: Session, user_id: str, plot_idx: int, data: dict) 
         ci.predicted_harvest_at = now + timedelta(seconds=grow * (1 - progress / 100.0))
     if data.get("water_level") is not None:
         ci.water_level = max(0, min(100, int(data["water_level"])))
+        extra = dict(ci.extra or {})
+        extra["watered_at"] = now.isoformat()  # 水分衰减从管理端设定时刻重新计时
+        ci.extra = extra
     db.commit()
     view = farm_service.crop_view(ci, crop)
     return {"plot_id": str(plot.id), "idx": plot.idx, **view}

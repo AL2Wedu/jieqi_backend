@@ -1,0 +1,21 @@
+{
+  // 棉花(mianhua)—— 设定见 _template.json 注释;改完重启或重跑 seed 生效
+  "slug": "mianhua",
+  "name": "棉花",
+  "category": "经济作物",
+  "sort_order": 15,
+  "sow_window": { "type": "term", "start": 5, "end": 7, "grace": 1 },
+  "grow_seconds": 400,
+  "yield_base": 5,
+  "base_price": 35,
+  "unlock_level": 6,      // 解锁等级;0 = 不限制
+  "unlock_exp": 300,        // 解锁经验;0 = 不限制
+  "settings": {
+    "wither_seasons": ["winter"],
+    "fast_growth_seasons": { "summer": 1.4 },
+    "water_need": { "min": 50, "ideal": 80 },
+    "fertility_need": 3,
+    "max_value": 50
+  },
+  "note": "高价值,需肥力3,周期最长"
+}

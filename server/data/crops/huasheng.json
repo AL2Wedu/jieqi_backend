@@ -1,0 +1,21 @@
+{
+  // 花生(huasheng)—— 设定见 _template.json 注释;改完重启或重跑 seed 生效
+  "slug": "huasheng",
+  "name": "花生",
+  "category": "油料",
+  "sort_order": 8,
+  "sow_window": { "type": "term", "start": 5, "end": 7, "grace": 1 },
+  "grow_seconds": 340,
+  "yield_base": 5,
+  "base_price": 30,
+  "unlock_level": 4,      // 解锁等级;0 = 不限制
+  "unlock_exp": 150,        // 解锁经验;0 = 不限制
+  "settings": {
+    "wither_seasons": ["winter"],
+    "fast_growth_seasons": { "summer": 1.3 },
+    "water_need": { "min": 45, "ideal": 75 },
+    "fertility_need": 2,
+    "max_value": 42
+  },
+  "note": "生长周期长,需肥中等"
+}

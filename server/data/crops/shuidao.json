@@ -1,0 +1,21 @@
+{
+  // 水稻(shuidao)—— 设定见 _template.json 注释;改完重启或重跑 seed 生效
+  "slug": "shuidao",
+  "name": "水稻",
+  "category": "谷物",
+  "sort_order": 1,
+  "sow_window": { "type": "term", "start": 4, "end": 8, "grace": 1 },
+  "grow_seconds": 300,
+  "yield_base": 6,
+  "base_price": 20,
+  "unlock_level": 1,      // 解锁等级;0 = 不限制
+  "unlock_exp": 0,        // 解锁经验;0 = 不限制
+  "settings": {
+    "wither_seasons": ["winter"],
+    "fast_growth_seasons": { "summer": 1.5 },
+    "water_need": { "min": 60, "ideal": 90 },
+    "fertility_need": 1,
+    "max_value": 30
+  },
+  "note": "春播秋收,夏季加速,冬天枯萎"
+}

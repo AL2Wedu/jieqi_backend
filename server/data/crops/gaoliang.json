@@ -1,0 +1,21 @@
+{
+  // 高粱(gaoliang)—— 设定见 _template.json 注释;改完重启或重跑 seed 生效
+  "slug": "gaoliang",
+  "name": "高粱",
+  "category": "谷物",
+  "sort_order": 4,
+  "sow_window": { "type": "term", "start": 5, "end": 8, "grace": 1 },
+  "grow_seconds": 260,
+  "yield_base": 6,
+  "base_price": 22,
+  "unlock_level": 2,      // 解锁等级;0 = 不限制
+  "unlock_exp": 50,        // 解锁经验;0 = 不限制
+  "settings": {
+    "wither_seasons": ["winter"],
+    "fast_growth_seasons": { "summer": 1.3 },
+    "water_need": { "min": 35, "ideal": 65 },
+    "fertility_need": 1,
+    "max_value": 32
+  },
+  "note": "耐旱耐涝,夏天加速"
+}

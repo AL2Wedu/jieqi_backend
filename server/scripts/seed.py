@@ -45,9 +45,52 @@ def crop_png_art(slug: str) -> dict:
 _ART: dict = {}
 
 
+def sync_crops(db: Session) -> int:
+    """每株植物 JSON → DB 幂等同步(新增 + 更新设定字段)。
+
+    - 以文件为事实源:改 data/crops/<slug>.json → 重启/重跑 seed 即生效
+    - 不覆盖 active 状态(管理后台停用的作物不会被文件重新激活)
+    - 返回发生变更的作物数
+    """
+    from scripts.crop_loader import load_crops
+
+    changed = 0
+    for c in load_crops():
+        slug = c.get("slug", "")
+        fields = dict(
+            category=c["category"],
+            sow_window=c.get(
+                "sow_window", {"type": "term", "start": 1, "end": 24, "grace": 0}
+            ),
+            grow_seconds=c["grow_seconds"],
+            yield_base=c.get("yield_base", 1),
+            base_price=c.get("base_price", 1),
+            unlock_level=c.get("unlock_level", 1),
+            unlock_exp=c.get("unlock_exp", 0),
+            description=c.get("description"),
+            art=c.get("art") or crop_png_art(slug),
+            settings=c.get("settings") or {},
+            sort_order=c.get("sort_order", 0),
+        )
+        row = db.query(Crop).filter(Crop.name == c["name"]).first()
+        if row is None:
+            db.add(Crop(id=crop_uuid(c["name"]), name=c["name"], **fields))
+            changed += 1
+        else:
+            for k, v in fields.items():
+                if getattr(row, k) != v:
+                    setattr(row, k, v)
+                    changed += 1
+    db.commit()
+    return changed
+
+
 def seed_if_empty(db: Session) -> bool:
     """幂等导入;返回是否执行了导入(各域独立判断)。"""
     seeded = False
+
+    # 作物设定始终同步(每株植物 JSON → DB upsert):改文件 → 重启即生效
+    sync_crops(db)
 
     if db.query(TermConfig).count() == 0:
         _seed_base(db)
@@ -99,23 +142,6 @@ def _seed_base(db: Session) -> None:
                 name=t["name"],
                 duration_seconds=t.get("duration_seconds", 300),
                 sort_order=t["term_index"],
-            )
-        )
-
-    for c in _load("crops.json"):
-        slug = c.get("slug", "")
-        db.add(
-            Crop(
-                id=crop_uuid(c["name"]),
-                name=c["name"],
-                category=c["category"],
-                sow_window=c["sow_window"],
-                grow_seconds=c["grow_seconds"],
-                yield_base=c["yield_base"],
-                base_price=c["base_price"],
-                description=c.get("description"),
-                art=crop_png_art(slug),
-                sort_order=c.get("sort_order", 0),
             )
         )
 

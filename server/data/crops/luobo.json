@@ -1,0 +1,21 @@
+{
+  // 萝卜(luobo)—— 设定见 _template.json 注释;改完重启或重跑 seed 生效
+  "slug": "luobo",
+  "name": "萝卜",
+  "category": "蔬菜",
+  "sort_order": 13,
+  "sow_window": { "type": "term", "start": 7, "end": 9, "grace": 1 },
+  "grow_seconds": 200,
+  "yield_base": 6,
+  "base_price": 14,
+  "unlock_level": 1,      // 解锁等级;0 = 不限制
+  "unlock_exp": 25,        // 解锁经验;0 = 不限制
+  "settings": {
+    "wither_seasons": ["winter"],
+    "fast_growth_seasons": { "autumn": 1.5 },
+    "water_need": { "min": 55, "ideal": 85 },
+    "fertility_need": 1,
+    "max_value": 20
+  },
+  "note": "长得快,需水偏多"
+}

@@ -1,0 +1,21 @@
+{
+  // 芝麻(zhima)—— 设定见 _template.json 注释;改完重启或重跑 seed 生效
+  "slug": "zhima",
+  "name": "芝麻",
+  "category": "油料",
+  "sort_order": 10,
+  "sow_window": { "type": "term", "start": 5, "end": 8, "grace": 1 },
+  "grow_seconds": 280,
+  "yield_base": 4,
+  "base_price": 32,
+  "unlock_level": 5,      // 解锁等级;0 = 不限制
+  "unlock_exp": 200,        // 解锁经验;0 = 不限制
+  "settings": {
+    "wither_seasons": ["winter"],
+    "fast_growth_seasons": { "summer": 1.4 },
+    "water_need": { "min": 40, "ideal": 70 },
+    "fertility_need": 2,
+    "max_value": 45
+  },
+  "note": "单株价高,产量少"
+}
