@@ -4,7 +4,7 @@
   "name": "大葱",
   "category": "蔬菜",
   "sort_order": 12,
-  "sow_window": { "type": "term", "start": 8, "end": 10, "grace": 1 },
+  "sow_window": { "type": "term", "start": 14, "end": 16, "grace": 1 },
   "grow_seconds": 260,
   "yield_base": 6,
   "base_price": 18,

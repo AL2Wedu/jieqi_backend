@@ -4,7 +4,7 @@
   "name": "白菜",
   "category": "蔬菜",
   "sort_order": 11,
-  "sow_window": { "type": "term", "start": 7, "end": 9, "grace": 1 },
+  "sow_window": { "type": "term", "start": 13, "end": 15, "grace": 1 },
   "grow_seconds": 220,
   "yield_base": 6,
   "base_price": 15,

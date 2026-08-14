@@ -4,7 +4,7 @@
   "name": "小麦",
   "category": "谷物",
   "sort_order": 2,
-  "sow_window": { "type": "term", "start": 9, "end": 11, "grace": 1 },
+  "sow_window": { "type": "term", "start": 17, "end": 19, "grace": 1 },
   "grow_seconds": 300,
   "yield_base": 6,
   "base_price": 20,
