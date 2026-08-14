@@ -98,3 +98,29 @@ def pest_clear(
     )
     db.commit()
     return ok({"events": n_ev, "targets": n_tg})
+
+
+@router.post("/weed/trigger")
+def weed_trigger(
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """调试:立刻给当前玩家触发一次杂草生长(随机地块附杂草)。"""
+    _guard()
+    from app.services import weed_service
+
+    targets = weed_service.fire_weed(db, player)
+    db.commit()
+    return ok({"type": "weed_growth", "targets": targets})
+
+
+@router.post("/weed/clear")
+def weed_clear(
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """调试:清除当前玩家所有地块的杂草。"""
+    _guard()
+    from app.services import weed_service
+
+    return ok(weed_service.clear_weeds(db, player))

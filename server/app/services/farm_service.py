@@ -69,14 +69,21 @@ def _get_active_crop(db: Session, player, plot_id: str) -> CropInstance:
     return ci
 
 
-def crop_view(ci: CropInstance, crop: Crop | None) -> dict:
+def crop_view(
+    ci: CropInstance,
+    crop: Crop | None,
+    weeded: bool = False,
+    slow_factor: float = 1.0,
+) -> dict:
     now = datetime.now(timezone.utc)
     settings = (crop.settings if crop else {}) or {}
     grow_base = crop.grow_seconds if crop else 0
     # 有效生长时长:加速季节播种时已按倍率缩短(播种时快照)
     grow = float((ci.extra or {}).get("grow_seconds_eff") or grow_base) or 1.0
+    # 杂草减速:该地块附有杂草 → 生长速度 × slow_factor(默认 0.5,慢一半)
+    rate = slow_factor if weeded else 1.0
     sowed = ensure_aware(ci.sowed_at)
-    base = (now - sowed).total_seconds() / grow * 100 if grow else 0.0
+    base = (now - sowed).total_seconds() * rate / grow * 100 if grow else 0.0
     boost = float((ci.extra or {}).get("boost_pct", 0))
     progress = min(100.0, base + boost)
 
@@ -97,7 +104,7 @@ def crop_view(ci: CropInstance, crop: Crop | None) -> dict:
             seconds=term_dur * ((base_water - wmin) / _WATER_DECAY_PER_TERM)
         )
         if now > stall_at:
-            stalled = (stall_at - sowed).total_seconds() / grow * 100
+            stalled = (stall_at - sowed).total_seconds() * rate / grow * 100
             progress = min(progress, stalled)
 
     stage = 3 if progress >= 100 else (2 if progress >= 50 else 1)
@@ -159,10 +166,16 @@ def check_wither(db: Session, player, now: datetime | None = None) -> list[dict]
 
 
 def get_farm_state(db: Session, player) -> dict:
+    from app.services import weed_service
+
     farm = _get_farm(db, player)
     plots = db.query(Plot).filter(Plot.farm_id == farm.id).order_by(Plot.idx).all()
     # 枯萎判定(当前季节 ∈ 作物枯萎季节 → 销毁),再取活动作物
     wither_events = check_wither(db, player)
+    # 杂草判定:到点生长(随机地块附杂草)
+    weed_events = weed_service.check_weed(db, player)
+    wcfg = weed_service.weed_config(db)
+    slow_factor = float(wcfg["weed.slow_factor"])
     active = (
         db.query(CropInstance)
         .filter(
@@ -183,7 +196,15 @@ def get_farm_state(db: Session, player) -> dict:
                 "idx": p.idx,
                 "soil_quality": p.soil_quality,
                 "locked": p.locked,
-                "crop": crop_view(ci, crop_defs.get(ci.crop_id)) if ci else None,
+                "weeded": bool(p.weeded),  # 附有杂草 → 该地块作物生长减速
+                "crop": crop_view(
+                    ci,
+                    crop_defs.get(ci.crop_id) if ci else None,
+                    weeded=bool(p.weeded),
+                    slow_factor=slow_factor,
+                )
+                if ci
+                else None,
             }
         )
     return {
@@ -195,6 +216,7 @@ def get_farm_state(db: Session, player) -> dict:
         },
         "current_term": world_service.current_calendar(db, player),
         "wither_events": wither_events,  # 本次读取时枯萎的作物(客户端弹提示)
+        "weed_events": weed_events,  # 本次读取时新长的杂草地块(客户端播动画/提示)
         "plots": plot_list,
     }
 

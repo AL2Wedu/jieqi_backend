@@ -111,6 +111,10 @@ async def ws_endpoint(websocket: WebSocket, token: str = Query(default="")):
                 destroyed = pest_service.check_expiry(db, player)
                 # 3) 枯萎判定:玩家季节进入作物枯萎季节 → 销毁
                 withered = farm_service.check_wither(db, player)
+                # 4) 杂草判定:到点生长(随机地块附杂草)
+                from app.services import weed_service
+
+                weeded = weed_service.check_weed(db, player)
             if event:
                 await manager.send_to_player(player_id, event)
             if destroyed:
@@ -128,6 +132,15 @@ async def ws_endpoint(websocket: WebSocket, token: str = Query(default="")):
                     {
                         "type": "crop_withered",
                         "payload": {"targets": withered},
+                        "ts": int(time.time()),
+                    },
+                )
+            if weeded:
+                await manager.send_to_player(
+                    player_id,
+                    {
+                        "type": "weed_growth",
+                        "payload": {"targets": weeded},
                         "ts": int(time.time()),
                     },
                 )

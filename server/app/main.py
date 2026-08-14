@@ -23,6 +23,7 @@ def init_db() -> None:
     Base.metadata.create_all(engine)
     _ensure_player_world_columns()
     _ensure_crop_columns()
+    _ensure_weed_columns()
 
 
 def _ensure_player_world_columns() -> None:
@@ -68,6 +69,22 @@ def _ensure_crop_columns() -> None:
                 conn.execute(text("ALTER TABLE crops ADD COLUMN settings JSON"))
     except Exception as e:
         logger.warning("crops 高级设定列迁移跳过: %s", e)
+
+
+def _ensure_weed_columns() -> None:
+    """杂草系统列:plots.weeded + players.weed_scheduled_accum(幂等 ALTER)。"""
+    try:
+        with engine.begin() as conn:
+            cols = {c["name"] for c in inspect(engine).get_columns("plots")}
+            if "weeded" not in cols:
+                conn.execute(text("ALTER TABLE plots ADD COLUMN weeded BOOLEAN DEFAULT 0"))
+            cols = {c["name"] for c in inspect(engine).get_columns("players")}
+            if "weed_scheduled_accum" not in cols:
+                conn.execute(
+                    text("ALTER TABLE players ADD COLUMN weed_scheduled_accum FLOAT")
+                )
+    except Exception as e:
+        logger.warning("杂草系统列迁移跳过: %s", e)
 
 
 @asynccontextmanager

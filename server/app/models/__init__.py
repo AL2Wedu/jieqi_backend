@@ -72,6 +72,8 @@ class Player(Base):
     world_last_sync: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # 虫害调度:下一次虫害触发时间(每用户隔离,均摊在窗口节气数内)
     next_pest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 杂草调度:下一节气内杂草生长的世界秒时刻(每用户隔离,到点触发)
+    weed_scheduled_accum: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class CoinTransaction(Base):
@@ -158,6 +160,7 @@ class Plot(Base):
     idx: Mapped[int] = mapped_column(SmallInteger)
     soil_quality: Mapped[int] = mapped_column(SmallInteger, default=1)
     locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    weeded: Mapped[bool] = mapped_column(Boolean, default=False)  # 附有杂草(减慢该地块作物生长)
 
 
 class Crop(Base):

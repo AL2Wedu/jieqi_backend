@@ -810,6 +810,7 @@ GET /v1/art/crops/{slug}/{crop.stage}.png?w=128
 | `pest_small` | 该玩家小虫害寄生(含大虫害未达标的惩罚寄生) | `{pest_id, type:"small", targets:[{pest_id, plot_id, idx, crop, stage, wait_seconds, ready_at}]}` | 标红目标地块,倒计时;驱赶 POST `/v1/farm/pest/{pest_id}/drive-away` |
 | `pest_destroyed` | 寄生倒计时到点,作物被摧毁 | `{targets:[{pest_id, plot_id}]}` | 刷新对应地块(作物已消失) |
 | `crop_withered` | 玩家季节进入植物枯萎季节,作物枯萎 | `{targets:[{plot_id, idx, crop_name}]}` | 刷新对应地块(作物已消失)+ 弹枯萎提示 |
+| `weed_growth` | 本节气随机时刻杂草生长,随机地块附杂草 | `{targets:[{plot_id, idx}]}` | 对应地块显示杂草(该地块作物生长减速),刷新 `GET /v1/farm/state` |
 
 ```json
 { "type": "resources_changed", "payload": { "player_id": "…", "name": "demo01", "level": 5, "exp": 120, "coins": 666, "unlocked_term_index": 6 }, "ts": 1784000000 }
