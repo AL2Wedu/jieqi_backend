@@ -134,7 +134,6 @@ class AdminTermDuration(BaseModel):
 class AdminClockPayload(BaseModel):
     time_scale: float | None = Field(default=None, gt=0, le=100)
     paused: bool | None = None
-    reset_epoch: bool = False
 
 
 class AdminPlayerAssetsPayload(BaseModel):
@@ -154,10 +153,12 @@ class AdminPlotPayload(BaseModel):
 
 
 class AdminWorldPayload(BaseModel):
-    """每用户世界覆盖:reset 回到纪元起点(立春);或设定累计世界秒。"""
+    """每用户世界覆盖:reset 回到立春;或设定累计世界秒;或覆盖速率。"""
 
     accum: float | None = Field(default=None, ge=0)
     reset: bool = False
+    time_scale: float | None = Field(default=None, gt=0, le=100, description="覆盖该玩家世界速率;None 不改")
+    clear_override: bool = Field(False, description="清除速率覆盖,恢复用全局 time_scale")
 
 
 class AdminPlotCropPayload(BaseModel):

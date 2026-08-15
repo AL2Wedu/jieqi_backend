@@ -42,7 +42,7 @@ def _mask_env(name: str, value: str) -> str:
 # ---------- 仪表盘 ----------
 
 def dashboard(db: Session) -> dict:
-    cal = calendar_service.current_calendar(db)
+    clock = calendar_service.get_clock(db)
     url = settings.database_url
     db_size = 0
     if url.startswith("sqlite:///"):
@@ -57,12 +57,16 @@ def dashboard(db: Session) -> dict:
             "debug_enabled": settings.debug_enabled,
             "db_size": db_size,
         },
-        "calendar": cal,
+        "clock": {
+            "time_scale": float(clock.time_scale),
+            "paused": clock.paused_at is not None,
+        },
         "counts": {
             "users": db.query(func.count(User.id)).scalar() or 0,
             "players": db.query(func.count(Player.id)).scalar() or 0,
             "farms": db.query(func.count(Farm.id)).scalar() or 0,
             "coins_total": int(db.query(func.coalesce(func.sum(Player.coins), 0)).scalar()),
+            "world_accum_total": int(db.query(func.coalesce(func.sum(Player.world_accum), 0)).scalar()),
             "crops": db.query(func.count(Crop.id)).scalar() or 0,
             "items": db.query(func.count(Item.id)).scalar() or 0,
             "terms": db.query(func.count(TermConfig.term_index)).scalar() or 0,
@@ -520,7 +524,6 @@ def list_terms(db: Session) -> dict:
             for t in rows
         ],
         "clock": {
-            "epoch": clock.epoch.isoformat(),
             "time_scale": float(clock.time_scale),
             "paused": clock.paused_at is not None,
         },
@@ -540,18 +543,14 @@ def update_clock(
     db: Session,
     time_scale: float | None = None,
     paused: bool | None = None,
-    reset_epoch: bool = False,
 ) -> dict:
     clock = calendar_service.get_clock(db)
     if time_scale is not None:
         clock.time_scale = time_scale
     if paused is not None:
         clock.paused_at = datetime.now(timezone.utc) if paused else None
-    if reset_epoch:
-        clock.epoch = datetime.now(timezone.utc)
     db.commit()
     return {
-        "epoch": clock.epoch.isoformat(),
         "time_scale": float(clock.time_scale),
         "paused": clock.paused_at is not None,
     }
@@ -1089,6 +1088,7 @@ def list_worlds(db: Session, page: int, page_size: int) -> dict:
                     player.last_active_at.isoformat() if player.last_active_at else None
                 ),
                 "world_accum": float(player.world_accum or 0.0),
+                "time_scale_override": player.time_scale_override,
                 "world_last_sync": (
                     player.world_last_sync.isoformat() if player.world_last_sync else None
                 ),
@@ -1103,8 +1103,11 @@ def list_worlds(db: Session, page: int, page_size: int) -> dict:
     return {"items": items, "page": page, "page_size": page_size, "total": total}
 
 
-def update_world(db: Session, player_id: str, accum: float | None = None, reset: bool = False) -> dict:
-    """重置/设定某玩家世界:reset 回到纪元起点(立春);accum 设定累计世界秒。"""
+def update_world(
+    db: Session, player_id: str, accum: float | None = None, reset: bool = False,
+    time_scale: float | None = None, clear_override: bool = False,
+) -> dict:
+    """重置/设定某玩家世界:reset 回到立春;accum 设定累计世界秒;time_scale 覆盖速率;clear_override 恢复全局。"""
     try:
         pid = uuid.UUID(player_id)
     except ValueError:
@@ -1112,4 +1115,7 @@ def update_world(db: Session, player_id: str, accum: float | None = None, reset:
     player = db.query(Player).filter(Player.id == pid).first()
     if not player:
         raise AppError("USER_NOT_FOUND", "玩家不存在", code=20002)
-    return world_service.set_world(db, player, accum=accum, reset=reset)
+    return world_service.set_world(
+        db, player, accum=accum, reset=reset,
+        time_scale=time_scale, clear_override=clear_override,
+    )

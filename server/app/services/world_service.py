@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.utils import ensure_aware
 from app.models import GameConfig, Player
-from app.services.calendar_service import calendar_dict, global_elapsed, term_at
+from app.services.calendar_service import calendar_dict, term_at
 
 _DEFAULT_OFFLINE_FACTOR = 0.25
 _DEFAULT_ONLINE_THRESHOLD = 300  # 秒
@@ -85,22 +85,26 @@ def sync_world(db: Session, player: Player, now: datetime | None = None) -> None
         player.last_active_at = now
         return
     if last_sync is None:
-        # 首次:继承全局参考世界位置(老玩家零成本迁移)
-        player.world_accum = global_elapsed(db, now)
+        # 首次:从立春(accum=0)开始,不继承全局纪元(每用户独立世界)
+        player.world_accum = 0.0
     else:
         dt = _elapsed_since_last_sync(db, player, now)
         if dt > 0:
             online = is_online(player, now, cfg["online_threshold"])
-            rate = _rate(db, 1.0 if online else cfg["offline_factor"])
+            rate = _rate(db, player, 1.0 if online else cfg["offline_factor"])
             player.world_accum = float(player.world_accum or 0.0) + dt * rate
     player.world_last_sync = now
     player.last_active_at = now
 
 
-def _rate(db: Session, factor: float) -> float:
+def _rate(db: Session, player: Player, factor: float) -> float:
+    """玩家世界推进速率 = 全局 time_scale × 在线/离线 factor;有 override 则用 override 覆盖全局。"""
     from app.services.calendar_service import get_clock
 
-    return float(get_clock(db).time_scale) * factor
+    base = float(get_clock(db).time_scale)
+    if player.time_scale_override is not None:
+        base = float(player.time_scale_override)
+    return base * factor
 
 
 def current_term(db: Session, player: Player) -> tuple:
@@ -124,27 +128,35 @@ def peek_term(db: Session, player: Player, now: datetime | None = None) -> tuple
     cfg = world_config(db)
     last_sync = ensure_aware(player.world_last_sync)
     if last_sync is None:
-        accum = global_elapsed(db, now)
+        accum = 0.0  # 首次:从立春开始(与 sync_world 一致)
     else:
         dt = _elapsed_since_last_sync(db, player, now)
         online = is_online(player, now, cfg["online_threshold"])
-        rate = _rate(db, 1.0 if online else cfg["offline_factor"])
+        rate = _rate(db, player, 1.0 if online else cfg["offline_factor"])
         accum = float(player.world_accum or 0.0) + dt * rate
     return term_at(db, accum)
 
 
 def set_world(
-    db: Session, player: Player, accum: float | None = None, reset: bool = False
+    db: Session, player: Player, accum: float | None = None, reset: bool = False,
+    time_scale: float | None = None, clear_override: bool = False,
 ) -> dict:
-    """管理端覆盖/重置玩家世界:reset → 回到纪元起点(立春);accum → 设定世界秒。"""
+    """管理端覆盖/重置玩家世界:reset → 回到立春;accum → 设定世界秒;time_scale → 覆盖速率;clear_override → 恢复全局。"""
     if reset:
         player.world_accum = 0.0
     elif accum is not None:
         player.world_accum = max(0.0, float(accum))
-    else:
-        raise ValueError("must provide accum or reset")
+    if time_scale is not None:
+        player.time_scale_override = max(0.0, float(time_scale))
+    if clear_override:
+        player.time_scale_override = None
     now = datetime.now(timezone.utc)
     player.world_last_sync = now
     player.last_active_at = now
     db.commit()
-    return {"player_id": str(player.id), "accum": player.world_accum, **current_calendar(db, player)}
+    return {
+        "player_id": str(player.id),
+        "accum": player.world_accum,
+        "time_scale_override": player.time_scale_override,
+        **current_calendar(db, player),
+    }

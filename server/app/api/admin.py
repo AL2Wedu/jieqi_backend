@@ -226,7 +226,6 @@ def clock_update(
             db,
             time_scale=req.time_scale,
             paused=req.paused,
-            reset_epoch=req.reset_epoch,
         )
     )
 
@@ -362,8 +361,14 @@ def world_update(
     admin: str = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    """重置/设定某玩家世界:reset 回到纪元起点;或设定累计世界秒。"""
-    return ok(admin_service.update_world(db, player_id, accum=req.accum, reset=req.reset))
+    """重置/设定某玩家世界:reset 回到立春;或设定累计世界秒;或覆盖/清除速率。"""
+    return ok(
+        admin_service.update_world(
+            db, player_id,
+            accum=req.accum, reset=req.reset,
+            time_scale=req.time_scale, clear_override=req.clear_override,
+        )
+    )
 
 
 # ---------- AI 设置与用量 ----------

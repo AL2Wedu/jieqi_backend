@@ -257,10 +257,11 @@ async function dashboard(el) {
   el.innerHTML = `
     <div class="page-head"><h1>仪表盘</h1><span class="mono">服务 PID ${d.server.pid} · v${d.server.version} · 数据库 ${(d.server.db_size/1024).toFixed(1)} KB</span></div>
     <div class="cards">
-      ${card('当前节气', d.calendar.name, `${d.calendar.term_index}/24 · 剩余 ${d.calendar.remaining_sec}s · 第 ${d.calendar.cycle} 轮`)}
+      ${card('全局速率', d.clock.time_scale + '×', d.clock.paused ? '⏸ 已暂停' : '▶ 运行中')}
       ${card('注册用户', c.users, `${c.players} 位玩家`)}
       ${card('农场', c.farms, `${c.growing} 块地种植中`)}
       ${card('金币总量', c.coins_total.toLocaleString(), '全服经济总量')}
+      ${card('世界运行时间', (c.world_accum_total/3600).toFixed(1) + 'h', '所有玩家世界累计秒总和')}
       ${card('作物', c.crops, '配置表')}
       ${card('道具', c.items, '目录')}
     </div>`;
@@ -440,20 +441,22 @@ async function worlds(el) {
   const d = await api(`/worlds?page=${worldPage}&page_size=20`);
   const totalPages = Math.max(1, Math.ceil(d.total / d.page_size));
   el.innerHTML = `
-    <div class="page-head"><h1>世界管理</h1><span class="mono">每用户独立节气 · 在线 1× / 离线 offline_factor(game_config)</span></div>
+    <div class="page-head"><h1>世界管理</h1><span class="mono">每用户独立节气 · 在线 1× / 离线 offline_factor(game_config) · 速率默认全局,可单用户覆盖</span></div>
     <div class="panel"><table>
-      <thead><tr><th>玩家</th><th>当前节气</th><th>累计世界秒</th><th>状态</th><th>最近活跃</th><th>操作</th></tr></thead>
+      <thead><tr><th>玩家</th><th>当前节气</th><th>累计世界秒</th><th>速率</th><th>状态</th><th>最近活跃</th><th>操作</th></tr></thead>
       <tbody>${d.items.map(w => `<tr>
         <td style="font-weight:500">${esc(w.name)}</td>
         <td>${esc(w.current_term.name)} <span class="mono" style="color:var(--text-3)">${w.current_term.term_index}/24 · 剩 ${w.current_term.remaining_sec}s</span></td>
         <td class="mono">${Math.round(w.world_accum)}</td>
+        <td class="mono">${w.time_scale_override != null ? `<span class="badge warn">${w.time_scale_override}×</span>` : '<span class="badge off">全局</span>'}</td>
         <td>${w.online ? '<span class="badge ok">在线</span>' : '<span class="badge off">离线</span>'}</td>
         <td class="mono" style="color:var(--text-3)">${esc((w.last_active_at||'—').slice(0,19).replace('T',' '))}</td>
         <td><div class="row-actions">
           <button class="btn small" onclick="setWorld('${w.player_id}')">设定</button>
+          <button class="btn small" onclick="setSpeed('${w.player_id}')">调速</button>
           <button class="btn small danger" onclick="resetWorld('${w.player_id}')">重置</button>
         </div></td>
-      </tr>`).join('') || '<tr><td colspan="6" class="empty">暂无玩家</td></tr>'}</tbody>
+      </tr>`).join('') || '<tr><td colspan="7" class="empty">暂无玩家</td></tr>'}</tbody>
     </table>
     <div class="pager"><button class="btn small" onclick="worldPage--;loadView()" ${worldPage<=1?'disabled':''}>‹ 上一页</button><span>第 ${worldPage} / ${totalPages} 页</span><button class="btn small" onclick="worldPage++;loadView()" ${worldPage>=totalPages?'disabled':''}>下一页 ›</button></div>
     </div>`;
@@ -471,6 +474,17 @@ async function saveWorld(pid) {
 }
 async function resetWorld(pid) {
   try { await api('/worlds/' + pid, 'PUT', { reset: true }); toast('世界已重置回立春'); loadView(); }
+  catch (err) { toast(err.message, 'err'); }
+}
+function setSpeed(pid) {
+  openModal(`<h3>调速(覆盖全局)</h3>
+    <div class="form-field"><label>世界速率(0.1-100,留空 = 恢复全局)</label><input class="inp mono" id="w-speed" type="number" step="0.1" min="0.1" max="100"></div>
+    <div class="modal-foot"><button class="btn" onclick="closeModal()">取消</button><button class="btn primary" onclick="saveSpeed('${pid}')">保存</button></div>`);
+}
+async function saveSpeed(pid) {
+  const raw = $('#w-speed').value;
+  if (raw === '') { try { await api('/worlds/' + pid, 'PUT', { clear_override: true }); closeModal(); toast('已恢复全局速率'); loadView(); } catch (err) { toast(err.message, 'err'); } return; }
+  try { await api('/worlds/' + pid, 'PUT', { time_scale: parseFloat(raw) }); closeModal(); toast('速率已覆盖'); loadView(); }
   catch (err) { toast(err.message, 'err'); }
 }
 
@@ -757,8 +771,6 @@ async function terms(el) {
         <div class="form-field"><label>倍速 time_scale</label><input class="inp mid mono" id="cl-scale" value="${d.clock.time_scale}"></div>
         <div class="form-field"><label>暂停</label><input type="checkbox" id="cl-paused" style="width:18px;height:18px" ${d.clock.paused?'checked':''}></div>
         <button class="btn primary" onclick="saveClock()">保存时钟</button>
-        <button class="btn" onclick="resetClock()">重置纪元(归零)</button>
-        <span class="mono" style="color:var(--text-3);align-self:center">epoch ${esc(d.clock.epoch.slice(0,19).replace('T',' '))}</span>
       </div>
     </div>
     <div class="panel"><table>
@@ -780,10 +792,6 @@ async function saveTerm(btn) {
 async function saveClock() {
   const payload = { time_scale: parseFloat($('#cl-scale').value) || 1, paused: $('#cl-paused').checked };
   try { await api('/clock', 'PUT', payload); toast('时钟已保存'); loadView(); }
-  catch (err) { toast(err.message, 'err'); }
-}
-async function resetClock() {
-  try { await api('/clock', 'PUT', { reset_epoch: true }); toast('纪元已重置'); loadView(); }
   catch (err) { toast(err.message, 'err'); }
 }
 

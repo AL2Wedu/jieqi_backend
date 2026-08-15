@@ -37,7 +37,8 @@ def test_dashboard(client):
     assert d["server"]["pid"] > 0
     assert d["counts"]["terms"] == 24
     assert d["counts"]["crops"] >= 6
-    assert 1 <= d["calendar"]["term_index"] <= 24
+    assert d["clock"]["time_scale"] > 0
+    assert "paused" in d["clock"]
 
 
 def test_users_and_ban(client):
@@ -232,7 +233,7 @@ def test_terms_and_clock(client):
 
     # 恢复默认
     r = client.put(
-        "/v1/admin/clock", json={"time_scale": 1.0, "paused": False, "reset_epoch": True}, headers=h
+        "/v1/admin/clock", json={"time_scale": 1.0, "paused": False}, headers=h
     ).json()
     assert r["code"] == 0 and r["data"]["paused"] is False
 

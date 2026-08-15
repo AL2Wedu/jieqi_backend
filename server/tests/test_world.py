@@ -142,8 +142,8 @@ def test_per_user_independent(client):
     assert 1 <= cal_a["term_index"] <= 24
 
 
-def test_lazy_init_inherits_global(client):
-    """world_last_sync 为 None(老玩家)→ 首次同步继承全局参考世界位置。"""
+def test_lazy_init_starts_at_lichun(client):
+    """world_last_sync 为 None(老玩家)→ 首次同步从立春(accum=0)开始,不继承全局纪元。"""
     from app.core.db import SessionLocal
     from app.models import Farm, Player, User
     from app.services import world_service
@@ -159,10 +159,8 @@ def test_lazy_init_inherits_global(client):
         db.commit()
         assert p.world_last_sync is None
         world_service.sync_world(db, p, now=T0)
-        from app.services.calendar_service import global_elapsed
-
         assert p.world_last_sync == T0
-        assert abs(p.world_accum - global_elapsed(db, T0)) < 1e-6
+        assert p.world_accum == 0.0  # 从立春开始,不继承全局纪元
 
 
 def test_farm_state_uses_player_term(client):
@@ -260,3 +258,69 @@ def test_ws_per_user(client):
         with client.websocket_connect("/v1/ws?token=bad-token"):
             pass
     assert exc.value.code == 4401
+
+
+# ---------- 每用户速率覆盖 ----------
+
+def test_time_scale_override_math(client):
+    """玩家 time_scale_override 覆盖全局 time_scale:推进速率用 override。"""
+    _reg(client, "world_override")
+    from app.core.db import SessionLocal
+    from app.services import world_service
+
+    with SessionLocal() as db:
+        p = _player(db, "world_override")
+        p.time_scale_override = 2.0  # 覆盖为 2×
+        _set_clock(db, p, 0.0, T0, T0 - timedelta(seconds=400))  # 离线
+        world_service.sync_world(db, p, now=T0 + timedelta(seconds=1000))
+        # 离线 factor 0.25 × override 2.0 = 0.5 → 1000 × 0.5 = 500
+        assert abs(p.world_accum - 500) < 0.001
+
+
+def test_time_scale_override_cleared_uses_global(client):
+    """清除 override 后恢复用全局 time_scale。"""
+    _reg(client, "world_override_clear")
+    from app.core.db import SessionLocal
+    from app.services import world_service
+
+    with SessionLocal() as db:
+        p = _player(db, "world_override_clear")
+        p.time_scale_override = 2.0
+        _set_clock(db, p, 0.0, T0, T0 - timedelta(seconds=400))
+        world_service.sync_world(db, p, now=T0 + timedelta(seconds=1000))
+        assert abs(p.world_accum - 500) < 0.001  # 2× 生效
+        # 清除 override → 恢复全局 1×
+        p.time_scale_override = None
+        _set_clock(db, p, p.world_accum, T0 + timedelta(seconds=1000), T0 + timedelta(seconds=1000) - timedelta(seconds=400))
+        world_service.sync_world(db, p, now=T0 + timedelta(seconds=2000))
+        # 再推进 1000s × 0.25(离线)= 250
+        assert abs(p.world_accum - 750) < 0.001
+
+
+def test_admin_world_speed_override(client):
+    """管理端 PUT /worlds/{pid} 可覆盖/清除速率。"""
+    h = _reg(client, "world_speed_admin")
+    ah = _admin_login(client)
+    r = client.get("/v1/admin/worlds", headers=ah).json()
+    pid = next(w for w in r["data"]["items"] if w["name"] == "world_speed_admin")["player_id"]
+
+    # 覆盖速率
+    r = client.put(f"/v1/admin/worlds/{pid}", json={"time_scale": 3.0}, headers=ah).json()
+    assert r["code"] == 0 and r["data"]["time_scale_override"] == 3.0
+    # 列表显示 override
+    r = client.get("/v1/admin/worlds", headers=ah).json()
+    w = next(x for x in r["data"]["items"] if x["player_id"] == pid)
+    assert w["time_scale_override"] == 3.0
+    # 清除 override
+    r = client.put(f"/v1/admin/worlds/{pid}", json={"clear_override": True}, headers=ah).json()
+    assert r["code"] == 0 and r["data"]["time_scale_override"] is None
+
+
+def test_dashboard_world_accum_total(client):
+    """dashboard 返回所有玩家世界运行时间总和。"""
+    _reg(client, "world_dash_total")
+    ah = _admin_login(client)
+    r = client.get("/v1/admin/dashboard", headers=ah).json()
+    assert r["code"] == 0
+    assert "world_accum_total" in r["data"]["counts"]
+    assert r["data"]["counts"]["world_accum_total"] >= 0

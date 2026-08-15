@@ -204,7 +204,7 @@
 | 59 | DELETE | `/v1/admin/items/{item_id}` | 删除道具(软删) |
 | 60 | GET | `/v1/admin/terms` | 节气列表(24) |
 | 61 | PUT | `/v1/admin/terms/{term_index}` | 修改节气时长 |
-| 62 | PUT | `/v1/admin/clock` | 时钟(倍速/暂停/重置纪元) |
+| 62 | PUT | `/v1/admin/clock` | 时钟(全局默认倍速/暂停) |
 | 63 | GET | `/v1/admin/users/{user_id}/farm` | 某用户农场 |
 | 64 | PUT | `/v1/admin/users/{user_id}/plots/{plot_idx}` | 地块(锁定/肥力) |
 | 65 | PUT | `/v1/admin/users/{user_id}/plots/{plot_idx}/crop` | 种/替换作物(不校验窗,不耗种子) |
@@ -932,8 +932,8 @@ GET /v1/social/players/{player_id}/farm
 | 字段 | 类型 | 说明 |
 |---|---|---|
 | `server` | object | `{pid, version, admin_enabled, debug_enabled, db_size}` |
-| `calendar` | object | 全局参考节气(同 5.6 结构) |
-| `counts` | object | `{users, players, farms, coins_total, crops, items, terms, growing}` |
+| `clock` | object | `{time_scale, paused}` 全局默认速率与暂停状态 |
+| `counts` | object | `{users, players, farms, coins_total, world_accum_total, crops, items, terms, growing}` |
 
 ### 8.3 GET /v1/admin/env — 环境变量(只读)
 
@@ -1126,11 +1126,12 @@ GET /v1/social/players/{player_id}/farm
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `time_scale` | float | 倍速(>0,≤100) |
+| `time_scale` | float | 全局默认倍速(>0,≤100);玩家无 override 时用此值 |
 | `paused` | bool | true=暂停(世界冻结) |
-| `reset_epoch` | bool | true=纪元重置(全部回立春) |
 
-**响应(data):** `{ "epoch", "time_scale", "paused" }`。
+**响应(data):** `{ "time_scale", "paused" }`。
+
+> 全局倍速是**默认值**;单个玩家可覆盖(见 8.33 `time_scale` 字段)。已删除全局纪元概念,新玩家从立春开始。
 
 ### 8.23 GET /v1/admin/users/{user_id}/farm — 某用户农场
 
@@ -1194,13 +1195,20 @@ GET /v1/social/players/{player_id}/farm
 
 **查询参数:** `page` / `page_size`。
 
-**响应(data):** 分页信封,`items[]`:`{ "player_id", "name", "accum"(世界秒), "term_index", "term_name", "online"(bool) }`。
+**响应(data):** 分页信封,`items[]`:`{ "player_id", "name", "world_accum"(世界秒), "time_scale_override"(float|null,覆盖速率), "current_term": {term_index, name, remaining_sec}, "online"(bool), "last_active_at" }`。
 
 ### 8.33 PUT /v1/admin/worlds/{player_id} — 覆盖/重置玩家世界
 
-**请求体:** `{ "accum": float, "reset": bool }`(reset=true 回到立春起点;否则设 accum)。
+**请求体(全可选):**
 
-**响应(data):** `{ "player_id", "accum", "term_index", "name", "cycle", "remaining_sec" }`
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `accum` | float | 设定累计世界秒 |
+| `reset` | bool | true=回到立春(accum=0) |
+| `time_scale` | float | 覆盖该玩家世界速率(0.1-100) |
+| `clear_override` | bool | true=清除速率覆盖,恢复用全局 time_scale |
+
+**响应(data):** `{ "player_id", "accum", "time_scale_override", "term_index", "name", "cycle", "remaining_sec" }`
 
 ### 8.34 GET /v1/admin/shop/settings — 全局商店默认
 
