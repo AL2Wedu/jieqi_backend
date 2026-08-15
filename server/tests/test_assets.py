@@ -65,3 +65,20 @@ def test_assets_missing_file_404():
         assert c.get("/v1/assets/audio/bgm/nope.ogg").status_code == 404
         assert c.get("/v1/assets/images/crops/nope/2.png?w=64").status_code == 404
         assert c.get("/v1/assets/config/terms/nope.json").status_code == 404
+
+
+# ---------- Task 3: /v1/art 保留为 images 别名(向后兼容) ----------
+
+def test_art_alias_still_works():
+    """旧 /v1/art 端点仍可用(向后兼容),且与 /v1/assets/images 返回同一张图。"""
+    with TestClient(app) as c:
+        # 旧路径仍 200
+        old = c.get("/v1/art/crops/shuidao/2.png?w=128")
+        assert old.status_code == 200
+        assert old.headers["content-type"] == "image/png"
+        # 新路径返回同一张图(内容一致)
+        new = c.get("/v1/assets/images/crops/shuidao/2.png?w=128")
+        assert new.status_code == 200
+        assert old.content == new.content
+        # 旧节气别名仍可用
+        assert c.get("/v1/art/terms/1.png?w=64").status_code == 200
