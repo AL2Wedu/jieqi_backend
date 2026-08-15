@@ -253,11 +253,13 @@
 
 ## 2.12 杂草系统
 
-**运作方式**:每用户世界,每个节气内**随机一个时刻**生长一次(世界秒调度 `weed_scheduled_accum`;离线期间世界推进也会触发)。到点:清除旧杂草 → 随机覆盖最多 `weed.max_plots`(默认 3)个地块(优先有作物的)→ 该地块作物生长速度 × `weed.slow_factor`(默认 0.5)。杂草存活不超过一个节气(下一次生长重新随机)。WS 推 `weed_growth`。
+**运作方式**:每用户世界,每个节气内**随机一个时刻**生长一次(世界秒调度 `weed_scheduled_accum`;离线期间世界推进也会触发)。到点:在**未长草**地块中新增覆盖最多 `weed.max_plots`(默认 3)个地块(优先有作物的),杂草**累积**——不主动清就会一直长。杂草地块作物生长速度 × `weed.slow_factor`(默认 0.5)。全农场杂草总量有上限 `weed.max_total`(默认 12,20 格的 60%),防整田荒芜。WS 推 `weed_growth`。
 
-**清除杂草**:玩家可对**单个地块** `POST /v1/farm/plots/{id}/weed-clear` 除草(只清所选格,原无杂草幂等返回 `cleared=false`);管理/调试可一次清全部。清除后该格作物生长速率恢复,但下个节气可能重新长。
+**清除杂草**:① 播种 = 翻地整地 → 清除该格杂草(重新下种一并处理);② 玩家可对**单个地块** `POST /v1/farm/plots/{id}/weed-clear` 除草(只清所选格,原无杂草幂等返回 `cleared=false`);③ 管理/调试可一次清全部。清除后该格作物生长速率恢复。
 
-**配置入口**:`game_config: weed.*`(enabled/slow_factor/max_plots);调试接口强制触发/清除。
+**生态**:冬天杂草**照常生长**(越冬杂草真实存在,如麦田冬前除草),与"冬季无虫害"互补——冬天是唯一保留的"可主动干预"负面机制。
+
+**配置入口**:`game_config: weed.*`(enabled/slow_factor/max_plots/max_total);调试接口强制触发/清除。
 
 **相关 API**:farm state 的 `plots[].weeded` 与 `weed_events`、`POST /v1/farm/plots/{id}/weed-clear`(单格除草)、`POST /v1/debug/weed/trigger|clear`
 

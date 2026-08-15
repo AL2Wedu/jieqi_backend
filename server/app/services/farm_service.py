@@ -311,6 +311,8 @@ def sow(db: Session, player, plot_id: str, crop_id: str) -> dict:
 
     now = datetime.now(timezone.utc)
     ui.quantity -= 1
+    # 播种 = 翻地整地:清除该地块的杂草(田里草不除会累积,播种时一并处理)
+    plot.weeded = False
     # 加速季节:在该季节播种 → 生长速度 × 倍率(有效生长时长 = 基础 / 倍率)
     settings = (crop.settings or {}) or {}
     fgs = settings.get("fast_growth_seasons") or {}

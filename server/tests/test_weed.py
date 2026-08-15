@@ -82,8 +82,8 @@ def test_weed_schedule_fires(client):
         assert float(player.weed_scheduled_accum) > target  # 已排到下一节气
 
 
-def test_weed_replaces_next_round(client):
-    """新一次生长先清除旧杂草再重新随机(杂草存活不超过一个节气)。"""
+def test_weed_accumulates(client):
+    """杂草累积:新一次生长不清除旧草,只在未长草地块新增。"""
     h = _reg(client, "weed_t3")
     r1 = client.post("/v1/debug/weed/trigger", headers=h).json()
     first = {t["idx"] for t in r1["data"]["targets"]}
@@ -92,8 +92,71 @@ def test_weed_replaces_next_round(client):
     second = {t["idx"] for t in r2["data"]["targets"]}
     st = client.get("/v1/farm/state", headers=h).json()["data"]
     weeded_now = {p["idx"] for p in st["plots"] if p["weeded"]}
-    assert weeded_now == second  # 旧杂草已被清除,只剩新一轮
-    assert len(weeded_now) <= 3
+    # 旧草仍在,新增不重叠(候选只选未长草地)
+    assert first <= weeded_now
+    assert first.isdisjoint(second)
+    assert len(weeded_now) == len(first) + len(second) == len(first | second)
+
+
+def test_sow_clears_weed_on_plot(client):
+    """播种(翻地)清除该地块杂草,不影响其他地块。"""
+    h = _reg(client, "weed_sow")
+    # 先推进到水稻宜种窗,再触发杂草(避免播种后推进节气时新杂草又盖回)
+    for _ in range(30):
+        cal = client.get("/v1/calendar/current", headers=h).json()["data"]
+        if 5 <= cal["term_index"] <= 8:
+            break
+        client.post("/v1/debug/term/advance", headers=h)
+    client.post("/v1/debug/weed/trigger", headers=h)
+    st = client.get("/v1/farm/state", headers=h).json()["data"]
+    weeded = [p for p in st["plots"] if p["weeded"] and p["crop"] is None]
+    assert weeded
+    target = weeded[0]
+
+    shop = client.get("/v1/shop/items", headers=h).json()["data"]["items"]
+    seed = next(i for i in shop if i["code"] == "seed_shuidao")
+    client.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=h)
+    r = client.post(
+        f"/v1/farm/plots/{target['plot_id']}/sow",
+        json={"crop_id": seed["effect"]["crop_id"]},
+        headers=h,
+    ).json()
+    assert r["code"] == 0, r
+    # 直接查 DB 确认该格已清草(不走 farm/state,避免其 check_weed 副作用可能的新杂草)
+    from app.models import Farm, Plot as PlotM, Player, User
+
+    with SessionLocal() as db:
+        u = db.query(User).filter(User.name == "weed_sow").first()
+        player = db.query(Player).filter(Player.user_id == u.id).first()
+        farm = db.query(Farm).filter(Farm.owner_id == player.id).first()
+        p = (
+            db.query(PlotM)
+            .filter(PlotM.farm_id == farm.id, PlotM.id == uuid.UUID(target["plot_id"]))
+            .first()
+        )
+        assert p.weeded is False  # 翻地清草
+        others = db.query(PlotM).filter(PlotM.farm_id == farm.id, PlotM.weeded.is_(True)).all()
+        assert {o.id for o in others} == {
+            uuid.UUID(x["plot_id"]) for x in weeded if x["plot_id"] != target["plot_id"]
+        }  # 只清该格,其他格杂草保留
+
+
+def test_weed_max_total_cap(client):
+    """杂草总量上限:触发多次也不超过 weed.max_total(调到小值验证)。"""
+    h = _reg(client, "weed_cap")
+    admin = client.post(
+        "/v1/admin/login", json={"username": "admin", "password": "admin123"}
+    ).json()
+    ah = {"Authorization": f"Bearer {admin['data']['token']}"}
+    client.put("/v1/admin/config/weed.max_total", json={"value": 4}, headers=ah)
+    try:
+        for _ in range(6):
+            client.post("/v1/debug/weed/trigger", headers=h)
+        st = client.get("/v1/farm/state", headers=h).json()["data"]
+        weeded = [p for p in st["plots"] if p["weeded"]]
+        assert len(weeded) <= 4  # 上限生效
+    finally:
+        client.delete("/v1/admin/config/weed.max_total", headers=ah)
 
 
 def test_weed_clear_single_plot(client):

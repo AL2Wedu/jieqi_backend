@@ -1,10 +1,12 @@
 """杂草系统:每用户隔离,每个节气内的随机时刻生长一次。
 
 - 调度:每个节气内随机一个世界秒时刻(weed_scheduled_accum,玩家世界时间)
-  - 到点触发:随机把若干地块标记为"附有杂草"(优先有作物的地块)
-  - 新一次生长会先清除旧杂草(重新随机,杂草存活不超过一个节气)
+  - 到点触发:在未覆盖地块中新增若干"附有杂草"标记(优先有作物的地块)
+  - 杂草**累积**:新一次生长不清除旧杂草(田野里草不除会一直在),直到玩家
+    主动清除或重新播种(翻地)才消失;全农场有总量上限 weed.max_total 防止荒芜
 - 效果:杂草地块上的植物生长速度 × weed.slow_factor(默认 0.5,慢一半)
-- 配置走 game_config(管理后台可改):weed.enabled / weed.slow_factor / weed.max_plots
+- 生态:冬天杂草照常生长(越冬杂草真实存在,如麦田冬前除草),与"冬季无虫害"互补
+- 配置走 game_config(管理后台可改):weed.enabled / weed.slow_factor / weed.max_plots / weed.max_total
 """
 import random
 import uuid
@@ -15,11 +17,12 @@ from app.core.errors import AppError
 from app.models import CropInstance, Farm, GameConfig, Plot, Player, TermConfig
 from app.services import world_service
 
-_KEYS = ("weed.enabled", "weed.slow_factor", "weed.max_plots")
+_KEYS = ("weed.enabled", "weed.slow_factor", "weed.max_plots", "weed.max_total")
 _DEFAULTS = {
     "weed.enabled": True,
     "weed.slow_factor": 0.5,  # 杂草地块生长速度倍率
-    "weed.max_plots": 3,  # 每次生长最多覆盖的地块数
+    "weed.max_plots": 3,  # 每次生长新增覆盖的地块数(最多)
+    "weed.max_total": 12,  # 全农场杂草总量上限(20 格的 60%,防整田荒芜)
 }
 
 
@@ -34,6 +37,7 @@ def weed_config(db: Session) -> dict:
             cfg[k] = v
     cfg["weed.slow_factor"] = max(0.1, min(0.9, float(cfg["weed.slow_factor"])))
     cfg["weed.max_plots"] = max(1, int(cfg["weed.max_plots"]))
+    cfg["weed.max_total"] = max(1, min(20, int(cfg["weed.max_total"])))  # 上限不超 20 格
     return cfg
 
 
@@ -98,6 +102,7 @@ def check_weed(db: Session, player: Player) -> list[dict]:
 # ---------- 触发 ----------
 
 def _candidate_plots(db: Session, player: Player, cfg: dict) -> list[Plot]:
+    """候选新增地块:未覆盖杂草的格子(优先有作物的),且受总量上限约束。"""
     farm = db.query(Farm).filter(Farm.owner_id == player.id).first()
     if not farm:
         return []
@@ -114,22 +119,24 @@ def _candidate_plots(db: Session, player: Player, cfg: dict) -> list[Plot]:
         )
         .all()
     }
-    with_crop = [p for p in plots if p.id in active_ids]
-    empty = [p for p in plots if p.id not in active_ids]
+    # 杂草累积:已达总量上限则不再新增;只在未覆盖地块中选
+    quota = max(0, int(cfg["weed.max_total"]) - sum(1 for p in plots if p.weeded))
+    if quota <= 0:
+        return []
+    with_crop = [p for p in plots if p.id in active_ids and not p.weeded]
+    empty = [p for p in plots if p.id not in active_ids and not p.weeded]
     random.shuffle(with_crop)
     random.shuffle(empty)
-    n = min(int(cfg["weed.max_plots"]), len(plots))
+    n = min(int(cfg["weed.max_plots"]), quota, len(plots))
     return (with_crop + empty)[:n]
 
 
 def fire_weed(db: Session, player: Player, cfg: dict | None = None) -> list[dict]:
-    """杂草生长:清除旧杂草 → 随机覆盖若干地块(优先有作物的)。返回 targets。"""
+    """杂草生长:新增覆盖若干未长草地块(不清除旧杂草,杂草累积)。返回 targets。"""
     cfg = cfg or weed_config(db)
     farm = db.query(Farm).filter(Farm.owner_id == player.id).first()
     if not farm:
         return []
-    # 清除旧杂草(新一次生长重新随机,杂草存活不超过一个节气)
-    db.query(Plot).filter(Plot.farm_id == farm.id).update({Plot.weeded: False})
     chosen = _candidate_plots(db, player, cfg)
     targets = []
     for p in chosen:
