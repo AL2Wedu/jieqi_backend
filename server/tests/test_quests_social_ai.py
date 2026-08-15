@@ -299,3 +299,61 @@ def test_social_water_and_steal_scaffold(client):
     r = client.post(f"/v1/social/friends/{pidB}/plots/3/steal", headers=hA).json()
     assert r["code"] == 0 and r["data"]["feature"] == "steal"
     assert r["data"]["enabled"] is False
+
+
+# ---------- 修复回归:daily 任务跨天重置 ----------
+
+def test_daily_quest_resets_next_day(client):
+    """daily 任务昨天领过 → 今天可再领;当天不可重复领。"""
+    from datetime import date, timedelta
+    from app.core.db import SessionLocal
+    from app.core.utils import ensure_aware
+    from app.models import UserQuest, Player, User
+
+    h = _reg(client, "daily_reset")
+    items = {q["code"]: q for q in client.get("/v1/quests", headers=h).json()["data"]["items"]}
+    # 找 daily 任务 q_harvest_1
+    assert items["q_harvest_1"]["category"] == "daily"
+    qid = items["q_harvest_1"]["quest_id"]
+
+    # 完成并领取一次(播种+催熟+收获)
+    for _ in range(30):
+        cal = client.get("/v1/calendar/current", headers=h).json()["data"]
+        if 5 <= cal["term_index"] <= 8:
+            break
+        client.post("/v1/debug/term/advance", headers=h)
+    shop = client.get("/v1/shop/items", headers=h).json()["data"]["items"]
+    seed = next(i for i in shop if i["code"] == "seed_shuidao")
+    client.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=h)
+    st = client.get("/v1/farm/state", headers=h).json()["data"]
+    pid = st["plots"][0]["plot_id"]
+    client.post(f"/v1/farm/plots/{pid}/sow", json={"crop_id": seed["effect"]["crop_id"]}, headers=h)
+    client.post("/v1/debug/grow", json={"plot_id": pid}, headers=h)
+    client.post(f"/v1/farm/plots/{pid}/harvest", headers=h)
+    client.get("/v1/quests", headers=h)  # 状态→已完成
+    before = client.get("/v1/player/me", headers=h).json()["data"]["coins"]
+    r = client.post(f"/v1/quests/{qid}/claim", headers=h).json()
+    assert r["code"] == 0 and r["data"]["coins_balance"] == before + 20
+
+    # 当天再领 → 25003(同天不重复)
+    r = client.post(f"/v1/quests/{qid}/claim", headers=h).json()
+    assert r["code"] == 25003
+
+    # 模拟第二天:把 claimed_at 回拨到昨天
+    with SessionLocal() as db:
+        u = db.query(User).filter(User.name == "daily_reset").first()
+        p = db.query(Player).filter(Player.user_id == u.id).first()
+        uq = db.query(UserQuest).filter(UserQuest.player_id == p.id, UserQuest.quest_id == uuid.UUID(qid)).first()
+        uq.claimed_at = ensure_aware(uq.claimed_at) - timedelta(days=1)
+        uq.completed_at = ensure_aware(uq.completed_at) - timedelta(days=1)
+        db.commit()
+
+    # 再拉列表 → daily 已重置(收获条件当天仍满足,立即回到"已完成"可领取)
+    items = {q["code"]: q for q in client.get("/v1/quests", headers=h).json()["data"]["items"]}
+    # 已重置:不再因 claimed_at=昨天 抛 25003,而是可再领(状态 1 已完成或 0 后立即判完成)
+    assert items["q_harvest_1"]["status"] in (0, 1)
+
+    # 直接领取 → 成功(第二天可再领;若状态仍是 0 说明 reset 未生效,会走"未完成"分支)
+    before2 = client.get("/v1/player/me", headers=h).json()["data"]["coins"]
+    r = client.post(f"/v1/quests/{qid}/claim", headers=h).json()
+    assert r["code"] == 0 and r["data"]["coins_balance"] == before2 + 20  # 第二天可再领

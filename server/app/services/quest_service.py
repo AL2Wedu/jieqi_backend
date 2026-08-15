@@ -1,16 +1,33 @@
 """任务系统:自动跟踪(无需接取),进度由服务器按通用条件实时计算。"""
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from app.core.errors import AppError
+from app.core.utils import ensure_aware
 from app.models import Player, Quest, UserQuest
 from app.services.goal_service import evaluate, grant_reward
 
 
 def _utcnow():
     return datetime.now(timezone.utc)
+
+
+def _reset_daily_if_new_day(uq: UserQuest) -> bool:
+    """daily 任务跨天重置:若上次完成/领取的日期不是今天 → 回到进行中,可再领。
+
+    用 completed_at/claimed_at 的日期判断,无需额外字段。once/story 任务不受影响。
+    """
+    if uq.status not in (1, 2):
+        return False
+    marker = uq.claimed_at or uq.completed_at
+    if marker is None or ensure_aware(marker).date().isoformat() != date.today().isoformat():
+        uq.status = 0
+        uq.completed_at = None
+        uq.claimed_at = None
+        return True
+    return False
 
 
 def _quest_view(q: Quest, uq: UserQuest) -> dict:
@@ -42,6 +59,9 @@ def list_quests(db: Session, player: Player) -> dict:
             uq = UserQuest(player_id=player.id, quest_id=q.id)
             db.add(uq)
             db.flush()
+        # daily 任务跨天重置(昨天领过的今天可再领);once/story 不重置
+        if q.category == "daily":
+            _reset_daily_if_new_day(uq)
         cur, target = evaluate(db, player, q.objective)
         uq.progress = {"current": cur, "target": target}
         if cur >= target and uq.status == 0:
