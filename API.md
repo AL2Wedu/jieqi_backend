@@ -108,12 +108,17 @@
 | 15 | POST | `/v1/shop/items/{item_id}/buy` | 🔐 | 购买道具(扣金币,写账本) |
 | 16 | GET | `/v1/shop/storage` | 🔐 | 收成仓(数量 + 当前季节卖价) |
 | 17 | POST | `/v1/shop/crops/{crop_id}/sell` | 🔐 | 出售收成(按当前季节价结算金币) |
+| 18 | GET | `/v1/player/uid/{uid_num}` | 🔐 | 按对外纯数字 ID 查任意玩家公开资料(与 social/players 同构) |
+| 19 | POST | `/v1/player/rename` | 🔐 | 改名(1-16 字符,限速 rename.cooldown_seconds,默认 7 天) |
+| 20 | POST | `/v1/auth/deactivate` | 🔐 | 注销账号(留档冻结,需密码+confirm,世界冻结) |
+| 21 | POST | `/v1/redeem` | 🔐 | 兑换码兑换(限速+哈希匹配+原子抢占,奖励走账本) |
 
 ### 3.2 扩展玩法(13)
 
 | # | 方法 | 路径 | 鉴权 | 说明 |
 |---|---|---|---|---|
 | 17 | POST | `/v1/quests/{quest_id}/claim` | 🔐 | 领取任务奖励(自动跟踪,达成才可领) |
+| 42 | GET | `/v1/quests` | 🔐 | 任务列表(自动跟踪,含实时进度) |
 | 18 | GET | `/v1/social/friends` | 🔐 | 好友列表 |
 | 19 | GET | `/v1/social/requests` | 🔐 | 发给我的待处理申请 |
 | 20 | POST | `/v1/social/requests` | 🔐 | 发送好友申请 |
@@ -121,6 +126,7 @@
 | 22 | POST | `/v1/social/requests/{player_id}/reject` | 🔐 | 拒绝申请 |
 | 23 | DELETE | `/v1/social/friends/{player_id}` | 🔐 | 删除好友 |
 | 24 | POST | `/v1/achievements/{achievement_id}/claim` | 🔐 | 领取成就奖励(配置驱动自动达成) |
+| 43 | GET | `/v1/achievements` | 🔐 | 成就列表(自动重算进度,达成即置 completed) |
 | 25 | POST | `/v1/ai/chat` | 🔐 | AI 对话(OpenAI 兼容透传) |
 | 26 | GET | `/v1/ai/models` | 🔐 | 可用模型列表(透传上游) |
 | 27 | GET | `/v1/ai/usage` | 🔐 | 我的 AI 用量统计 |
@@ -213,6 +219,10 @@
 | 94 | GET | `/v1/admin/pest/config` | 虫害系统配置 |
 | 95 | PUT | `/v1/admin/pest/config` | 保存虫害配置 |
 | 96 | GET | `/v1/admin/pest/events` | 虫害事件记录 |
+| 97 | POST | `/v1/admin/redeem/codes` | 发布兑换码(单个/批量,明文只回一次,库存哈希) |
+| 98 | GET | `/v1/admin/redeem/codes` | 兑换码列表(运营视图:前 6 位 hint + 用量/状态) |
+| 99 | PUT | `/v1/admin/redeem/codes/{code_id}` | 更新兑换码(停用/启用/次数/过期) |
+| 100 | PUT | `/v1/admin/users/{user_id}/rename` | 管理端改名(无限速,同步 User+Player) |
 
 ### 3.6 WebSocket 与页面(2 WS + 3 页面)
 
@@ -309,6 +319,44 @@
 **错误:** `10002 UNAUTHORIZED`(未登录/玩家不存在)· `10003 UNAUTHORIZED`(token 过期)· `20004 USER_BANNED`(被封禁,HTTP 403)
 
 **注意事项:** 收到 WS `resources_changed` 事件后**必须重新调用本接口**获取权威数值。
+
+### 5.3.1 GET /v1/player/uid/{uid_num} — 按数字 ID 查公开资料(🔐)
+
+**请求:** 路径参数 `uid_num`(纯数字,7 位)。
+
+**响应(data):** 与 `/v1/social/players/{player_id}` 同构的公开资料 + `relation`(与我的关系状态)。
+
+**错误:** `20013 UID_NOT_FOUND`(数字 ID 不存在)· `10002 UNAUTHORIZED`
+
+### 5.3.2 POST /v1/player/rename — 改名(🔐)
+
+**请求体:** `new_name`(1-16 字符)。
+
+**响应(data):** `{ "name", "rename_last_at", "next_rename_at" }`
+
+**错误:** `10001 INVALID_PARAMS`(长度非法/与旧名相同)· `20008 RENAME_TOO_FREQUENT`(限速内,响应带剩余秒数)· `20004 USER_BANNED`· `20007 USER_DEACTIVATED`
+
+**注意事项:** 限速 `rename.cooldown_seconds`(默认 7 天,后台可调);同步改 `User.name` + `Player.name`。
+
+### 5.3.3 POST /v1/auth/deactivate — 注销账号(🔐)
+
+**请求体:** `password`(当前密码)+ `confirm`(必须 true)。
+
+**响应(data):** `{ "deactivated": true, "deactivated_at" }`
+
+**错误:** `20003 BAD_CREDENTIALS`(密码错误)· `10001 INVALID_PARAMS`(confirm 非 true)· `20004 USER_BANNED`
+
+**注意事项:** 注销=留档冻结(数据不删),世界停止推进;注销后 token 立即失效,无法再登录。
+
+### 5.3.4 POST /v1/redeem — 兑换码兑换(🔐)
+
+**请求体:** `code`(6-24 位 [A-Z0-9])。
+
+**响应(data):** `{ "reward": {coins, exp, items}, "claimed_at" }`
+
+**错误:** `20009 REDEEM_RATE_LIMITED`(限速内)· `20010 REDEEM_INVALID`(无效/停用/过期,统一)· `20011 REDEEM_CLAIMED`(已兑换过)· `20012 REDEEM_EXHAUSTED`(已用完)
+
+**注意事项:** 限速 `redeem.cooldown_seconds`(默认 60s,成功失败都算);奖励走账本(金币/经验/道具)。
 
 ### 5.4 GET /v1/player/inventory — 背包(🔐)
 
@@ -606,6 +654,14 @@ GET /v1/social/players/{player_id}/farm
 
 ## 6. 扩展玩法端点详解
 
+### 6.0 GET /v1/quests — 任务列表(🔐)
+
+**请求:** 无参数。
+
+**响应(data):** `{ "items": [{ "quest_id", "code", "name", "desc", "progress", "target", "completed", "claimed", "reward" }] }`(自动跟踪,含实时进度)。
+
+**错误:** `10002 UNAUTHORIZED`
+
 ### 6.1 POST /v1/quests/{quest_id}/claim — 领取任务奖励(🔐)
 
 **路径参数:** `quest_id` — 任务 UUID。
@@ -668,6 +724,14 @@ GET /v1/social/players/{player_id}/farm
 **响应(data):** `{ "removed_player_id": "..." }`
 
 **错误:** `27004 NOT_FRIENDS`(非好友关系)
+
+### 6.7.1 GET /v1/achievements — 成就列表(🔐)
+
+**请求:** 无参数。
+
+**响应(data):** `{ "items": [{ "achievement_id", "code", "name", "desc", "progress", "target", "completed", "claimed", "reward", "head_title_id" }] }`(自动重算进度,达成即置 completed)。
+
+**错误:** `10002 UNAUTHORIZED`
 
 ### 6.8 POST /v1/achievements/{achievement_id}/claim — 领取成就奖励(🔐)
 
@@ -892,6 +956,44 @@ GET /v1/social/players/{player_id}/farm
 **响应(data):** 同 8.6(更新后)。
 
 **注意事项:** 编辑成功后向该玩家在线 WS 推送 **`resources_changed`**(客户端强制刷新)。
+
+### 8.7.1 POST /v1/admin/redeem/codes — 发布兑换码(👑)
+
+**请求体:**
+
+| 字段 | 类型 | 约束 |
+|---|---|---|
+| `reward` | object | 奖励 `{coins, exp, items:[{code,quantity}]}` |
+| `count` | int | 批量数量(1-100,仅未指定 code 时) |
+| `code` | str? | 指定码值(6-24 位 [A-Z0-9]);省略则随机生成 |
+| `batch_name` | str? | 批次名(运营备注) |
+| `max_uses` | int | 总使用次数上限,0=不限 |
+| `per_player_limit` | int | 每人限领次数(默认 1) |
+| `expires_at` | str? | 过期时间 ISO8601 |
+
+**响应(data):** `{ "codes": [{ "code", "id", "batch_name" }] }` —— **明文只在本次响应返回一次**,库中存 SHA-256 哈希。
+
+**错误:** `20015 REDEEM_CODE_EXISTS`(指定码值已存在)
+
+### 8.7.2 GET /v1/admin/redeem/codes — 兑换码列表(👑)
+
+**查询:** `page` / `page_size`。
+
+**响应(data):** `{ "items": [{ "id", "hint"(前6位), "batch_name", "max_uses", "used_count", "per_player_limit", "expires_at", "active", "created_at" }], "page", "page_size", "total" }`
+
+### 8.7.3 PUT /v1/admin/redeem/codes/{code_id} — 更新兑换码(👑)
+
+**请求体(全可选):** `active`(bool)· `max_uses`(int)· `per_player_limit`(int)· `expires_at`(str?)。
+
+**错误:** `20016 REDEEM_NOT_FOUND`(兑换码不存在)
+
+### 8.7.4 PUT /v1/admin/users/{user_id}/rename — 管理端改名(👑)
+
+**请求体:** `new_name`(1-16 字符)。
+
+**响应(data):** `{ "name", "user_id" }`
+
+**注意事项:** 无限速;同步改 `User.name` + `Player.name`。
 
 ### 8.8 GET /v1/admin/config — 全局配置列表
 
@@ -1319,6 +1421,16 @@ GET /v1/art/manifest                                # 全量清单:作物×4 + �
 | 20003 | BAD_CREDENTIALS | 400 | 密码错误 |
 | 20004 | USER_BANNED | 403 | 账号已封禁(登录与存量 token 均拦截) |
 | 20006 | NAME_CONFLICT | 400 | 同名多账号且密码相同,登录歧义 |
+| 20007 | USER_DEACTIVATED | 403 | 账号已注销(登录与存量 token 均拦截,世界冻结) |
+| 20008 | RENAME_TOO_FREQUENT | 400 | 改名过于频繁(rename.cooldown_seconds 内,响应带剩余秒数) |
+| 20009 | REDEEM_RATE_LIMITED | 400 | 兑换过于频繁(redeem.cooldown_seconds 内,成功失败都算) |
+| 20010 | REDEEM_INVALID | 400 | 兑换码无效/停用/过期(统一报错防枚举) |
+| 20011 | REDEEM_CLAIMED | 400 | 该兑换码已兑换过(per_player_limit 已满) |
+| 20012 | REDEEM_EXHAUSTED | 400 | 兑换码已用完(max_uses 耗尽) |
+| 20013 | UID_NOT_FOUND | 400 | 数字 ID 不存在 |
+| 20014 | UID_GEN_FAILED | 500 | 数字 ID 生成失败(随机冲突重试耗尽) |
+| 20015 | REDEEM_CODE_EXISTS | 400 | 兑换码已存在(管理端发布重复) |
+| 20016 | REDEEM_NOT_FOUND | 400 | 兑换码不存在(管理端更新) |
 | 21000 | FARM_NOT_FOUND | 400 | 农场不存在 |
 | 21001 | PLOT_NOT_FOUND | 400 | 地块不存在/未解锁/不属于我 |
 | 21002 | PLOT_OCCUPIED | 400 | 地块已有作物 |

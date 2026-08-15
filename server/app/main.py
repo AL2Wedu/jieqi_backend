@@ -26,6 +26,7 @@ def init_db() -> None:
     _ensure_weed_columns()
     _ensure_wilted_columns()
     _ensure_users_name_nonunique()
+    _ensure_account_columns()
 
 
 def _ensure_player_world_columns() -> None:
@@ -87,6 +88,35 @@ def _ensure_weed_columns() -> None:
                 )
     except Exception as e:
         logger.warning("杂草系统列迁移跳过: %s", e)
+
+
+def _ensure_account_columns() -> None:
+    """账号体系四件套迁移(幂等):uid_num 唯一索引 / deactivated_at / 改名·兑换限速列。
+
+    SQLite 的 ALTER ADD COLUMN 不支持 UNIQUE 约束 → 加普通列后单独建唯一索引
+    (新库由模型 create_all 直接建列+约束,此处仅补老库)。
+    """
+    with engine.begin() as conn:
+        ucols = {c["name"] for c in inspect(engine).get_columns("users")}
+        if "uid_num" not in ucols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN uid_num BIGINT"))
+        if "deactivated_at" not in ucols:
+            conn.execute(text("ALTER TABLE users ADD COLUMN deactivated_at DATETIME"))
+        idxs = {r[1] for r in conn.execute(text("PRAGMA index_list('users')")).fetchall()}
+        if "ux_users_uid_num" not in idxs:
+            conn.execute(
+                text("CREATE UNIQUE INDEX IF NOT EXISTS ux_users_uid_num ON users(uid_num)")
+            )
+        pcols = {c["name"] for c in inspect(engine).get_columns("players")}
+        if "rename_last_at" not in pcols:
+            conn.execute(text("ALTER TABLE players ADD COLUMN rename_last_at DATETIME"))
+        if "redeem_last_attempt_at" not in pcols:
+            conn.execute(text("ALTER TABLE players ADD COLUMN redeem_last_attempt_at DATETIME"))
+    # 老用户回填 uid_num(幂等:只补 NULL)
+    from app.services.auth_service import backfill_uid_nums
+
+    with SessionLocal() as db:
+        backfill_uid_nums(db)
 
 
 def _ensure_users_name_nonunique() -> None:

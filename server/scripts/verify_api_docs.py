@@ -26,6 +26,7 @@ PREFIX = {
     "shop_guest.py": "/shop/guest",
     "quests.py": "/quests",
     "social.py": "/social",
+    "redeem.py": "/redeem",
     "achievements.py": "/achievements",
     "ai.py": "/ai",
     "art.py": "/art",
@@ -45,7 +46,7 @@ def extract_routes() -> list[tuple[str, str, str]]:
     for fname, prefix in PREFIX.items():
         text = (API_DIR / fname).read_text(encoding="utf-8")
         for m in re.finditer(
-            r'@router\.(get|post|put|patch|delete)\("([^"]+)"\)', text
+            r'@router\.(get|post|put|patch|delete)\("([^"]*)"\)', text
         ):
             routes.append((m.group(1).upper(), prefix + m.group(2), fname))
         for m in re.finditer(r'@router\.websocket\("([^"]+)"\)', text):

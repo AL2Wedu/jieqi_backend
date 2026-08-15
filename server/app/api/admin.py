@@ -21,13 +21,16 @@ from app.schemas import (
     AdminPlotGrowthPayload,
     AdminPlotPayload,
     AdminQuantityPayload,
+    AdminRedeemCreatePayload,
+    AdminRedeemUpdatePayload,
+    AdminRenamePayload,
     AdminShopSettingsPayload,
     AdminStatusRequest,
     AdminTermDuration,
     AdminUserShopItemPayload,
     AdminWorldPayload,
 )
-from app.services import admin_service, ai_service, pest_service
+from app.services import admin_service, ai_service, pest_service, redeem_service
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -602,3 +605,52 @@ def list_guests(
         for s, p, u, c in rows
     ]
     return ok({"items": items, "page": page, "page_size": page_size, "total": total})
+
+
+# ---------- 兑换码管理(仅 admin) ----------
+
+@router.post("/redeem/codes")
+def redeem_create(
+    req: AdminRedeemCreatePayload,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """发布兑换码(单个/批量):明文只在响应返回一次,库中存哈希。"""
+    return ok(redeem_service.create_code(db, admin, req.model_dump()))
+
+
+@router.get("/redeem/codes")
+def redeem_list(
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """兑换码列表(运营视图):只回前 6 位 hint + 用量/状态。"""
+    return ok(
+        redeem_service.list_codes(
+            db, limit=page_size, offset=(page - 1) * page_size
+        )
+    )
+
+
+@router.put("/redeem/codes/{code_id}")
+def redeem_update(
+    code_id: str,
+    req: AdminRedeemUpdatePayload,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """更新兑换码:停用/启用、次数上限、过期时间(软管理不删除)。"""
+    return ok(redeem_service.update_code(db, admin, code_id, req.model_dump(exclude_none=True)))
+
+
+@router.put("/users/{user_id}/rename")
+def user_rename(
+    user_id: str,
+    req: AdminRenamePayload,
+    admin: str = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """管理端改名(无限速):同步 User.name + Player.name。"""
+    return ok(admin_service.rename_user(db, user_id, req.new_name))

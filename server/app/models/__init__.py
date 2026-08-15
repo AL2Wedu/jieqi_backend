@@ -47,7 +47,10 @@ class User(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
     name: Mapped[str] = mapped_column(String(32), index=True)  # 允许重名(班级同名场景),登录按名字+密码双匹配
     password_hash: Mapped[str] = mapped_column(String(255))
-    status: Mapped[int] = mapped_column(SmallInteger, default=1)  # 1正常 0封禁
+    status: Mapped[int] = mapped_column(SmallInteger, default=1)  # 1正常 0封禁 2注销(留档冻结,绝不删除)
+    # 对外纯数字 ID(随机 7 位,防枚举;对外展示/查询,内部仍用 UUID)
+    uid_num: Mapped[int | None] = mapped_column(BigInteger, unique=True, nullable=True, index=True)
+    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     register_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     last_login_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
     register_location: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -68,6 +71,10 @@ class Player(Base):
     unlocked_term_index: Mapped[int] = mapped_column(SmallInteger, default=1)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     last_active_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 改名限速:上次改名时间(rename.cooldown_seconds 内禁止再改)
+    rename_last_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 兑换码尝试限速:上次兑换尝试时间(成功失败都算,redeem.cooldown_seconds 内禁止再试)
+    redeem_last_attempt_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # 每用户世界时钟:world_accum 为相对全局纪元的累计世界秒(在线 1× / 离线 offline_factor)
     world_accum: Mapped[float] = mapped_column(Float, default=0.0)
     world_last_sync: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -507,3 +514,40 @@ class AiGuestMessage(Base):
     content: Mapped[str] = mapped_column(Text)
     reply: Mapped[dict | None] = mapped_column(JSON, nullable=True)  # guest 行:完整回复 JSON
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RedeemCode(Base):
+    """兑换码:仅管理后台可发布/管理。
+
+    安全:码值只存 SHA-256 哈希(code_hash),DB 泄露不暴露明文;
+    max_uses=0 表示不限总次数;used_count 由条件 UPDATE 原子抢占(防并发超发)。
+    """
+
+    __tablename__ = "redeem_codes"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)  # sha256(明文)
+    code_hint: Mapped[str] = mapped_column(String(6), default="")  # 明文前 6 位(运营列表识别用)
+    reward: Mapped[dict] = mapped_column(JSON)  # {coins, exp, items:[{code,quantity}]},发放走 grant_reward
+    batch_name: Mapped[str] = mapped_column(String(64), default="")  # 批次名(运营备注)
+    max_uses: Mapped[int] = mapped_column(Integer, default=1)  # 总使用次数上限,0=不限
+    used_count: Mapped[int] = mapped_column(Integer, default=0)
+    per_player_limit: Mapped[int] = mapped_column(Integer, default=1)  # 每人限领次数
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    active: Mapped[int] = mapped_column(SmallInteger, default=1)  # 1启用 0停用(软停,不删除)
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)  # 发布管理员用户名(留痕)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class RedeemClaim(Base):
+    """兑换领取记录:UNIQUE(player, code) 防重复领取;per_player_limit>1 时允许多条。"""
+
+    __tablename__ = "redeem_claims"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
+    player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), index=True)
+    redeem_code_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("redeem_codes.id"), index=True)
+    claimed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    __table_args__ = (
+        UniqueConstraint("player_id", "redeem_code_id", name="uq_redeem_claim_player_code"),
+    )

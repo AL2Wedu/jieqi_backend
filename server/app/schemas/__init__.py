@@ -88,7 +88,8 @@ class AdminLoginRequest(BaseModel):
 
 
 class AdminStatusRequest(BaseModel):
-    status: int = Field(ge=0, le=1)
+    # 合法值由服务层校验(0 封禁 / 1 正常 / 2 注销),schema 只做类型
+    status: int
 
 
 class AdminConfigValue(BaseModel):
@@ -178,3 +179,49 @@ class AdminQuantityPayload(BaseModel):
     """设定数量(绝对值;0=清空)。用于背包道具 / 收成仓作物。"""
 
     quantity: int = Field(ge=0)
+
+
+class RenameRequest(BaseModel):
+    """玩家改名:1-16 字符,服务端限速(rename.cooldown_seconds)。"""
+
+    new_name: str = Field(..., min_length=1, max_length=16, description="新名字(1-16 字符)")
+
+
+class DeactivateRequest(BaseModel):
+    """账号注销:需当前密码 + confirm 二次确认(防盗号)。"""
+
+    password: str = Field(..., min_length=6, max_length=64, description="当前密码")
+    confirm: bool = Field(False, description="必须传 true 确认注销")
+
+
+class RedeemRequest(BaseModel):
+    """兑换码兑换:码值仅 [A-Z0-9] 6-24 位。"""
+
+    code: str = Field(..., min_length=6, max_length=24, description="兑换码")
+
+
+class AdminRedeemCreatePayload(BaseModel):
+    """管理端发布兑换码:reward 与任务奖励同构 {coins, exp, items:[{code,quantity}]}。"""
+
+    reward: dict = Field(..., description="奖励:{coins, exp, items:[{code,quantity}]}")
+    count: int = Field(1, ge=1, le=100, description="批量生成数量(仅未指定 code 时)")
+    code: str | None = Field(None, min_length=6, max_length=24, description="指定码值(单个时);省略则随机生成")
+    batch_name: str | None = Field(None, max_length=64, description="批次名(运营备注)")
+    max_uses: int = Field(1, ge=0, description="总使用次数上限,0=不限")
+    per_player_limit: int = Field(1, ge=1, description="每人限领次数")
+    expires_at: str | None = Field(None, description="过期时间 ISO8601,省略=不过期")
+
+
+class AdminRedeemUpdatePayload(BaseModel):
+    """管理端更新兑换码:停用/启用、改次数上限、改过期时间。"""
+
+    active: bool | None = Field(None, description="None 不改;true 启用 / false 停用")
+    max_uses: int | None = Field(None, ge=0, description="总次数上限,0=不限")
+    per_player_limit: int | None = Field(None, ge=1, description="每人限领次数")
+    expires_at: str | None = Field(None, description="过期时间 ISO8601,null=改为不过期")
+
+
+class AdminRenamePayload(BaseModel):
+    """管理端改名(无限速)。"""
+
+    new_name: str = Field(..., min_length=1, max_length=16, description="新名字(1-16 字符)")

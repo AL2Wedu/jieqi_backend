@@ -1,9 +1,10 @@
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_db
+from app.core.deps import get_current_player, get_db
 from app.core.errors import ok
-from app.schemas import LoginRequest, RegisterRequest
+from app.models import Player
+from app.schemas import DeactivateRequest, LoginRequest, RegisterRequest
 from app.services import auth_service
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -22,6 +23,16 @@ def _client_ip(request: Request) -> str | None:
 @router.post("/register")
 def register(req: RegisterRequest, request: Request, db: Session = Depends(get_db)):
     return ok(auth_service.register(db, req.name, req.password, _client_ip(request)))
+
+
+@router.post("/deactivate")
+def deactivate(
+    req: DeactivateRequest,
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """注销账号(留档冻结):需当前密码 + confirm=true;注销后无法登录,世界冻结。"""
+    return ok(auth_service.deactivate(db, player, req.password, req.confirm))
 
 
 @router.post("/login")

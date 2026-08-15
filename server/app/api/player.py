@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import get_current_player, get_db
 from app.core.errors import ok
 from app.models import Player
-from app.schemas import UseItemRequest
+from app.schemas import RenameRequest, UseItemRequest
 from app.services import inventory_service, player_service
 
 router = APIRouter(prefix="/player", tags=["player"])
@@ -13,6 +13,26 @@ router = APIRouter(prefix="/player", tags=["player"])
 @router.get("/me")
 def me(player: Player = Depends(get_current_player), db: Session = Depends(get_db)):
     return ok(player_service.get_me(db, player))
+
+
+@router.get("/uid/{uid_num}")
+def by_uid(
+    uid_num: int,
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """按对外纯数字 ID 查询任意玩家公开资料(与 /v1/social/players/{id} 同构)。"""
+    return ok(player_service.get_by_uid(db, player, uid_num))
+
+
+@router.post("/rename")
+def rename(
+    req: RenameRequest,
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """玩家改名:1-16 字符,限速 rename.cooldown_seconds(默认 7 天,后台可调)。"""
+    return ok(player_service.rename_player(db, player, req.new_name))
 
 
 @router.get("/inventory")

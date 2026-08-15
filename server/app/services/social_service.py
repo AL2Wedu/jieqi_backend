@@ -172,6 +172,7 @@ def _profile_view(db: Session, target: Player) -> dict:
     farm = db.query(Farm).filter(Farm.owner_id == target.id).first()
     return {
         "player_id": str(target.id),
+        "uid_num": u.uid_num if u else None,  # 对外纯数字 ID
         "name": u.name if u else "?",
         "level": target.level,
         "unlocked_term_index": target.unlocked_term_index,

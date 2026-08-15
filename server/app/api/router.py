@@ -17,6 +17,7 @@ from app.api import (
     pest,
     player,
     quests,
+    redeem,
     shop,
     shop_guest,
     social,
@@ -42,6 +43,7 @@ api.include_router(achievements.router)
 api.include_router(ai.router)
 api.include_router(art.router)
 api.include_router(pest.router)
+api.include_router(redeem.router)
 api.include_router(debug.router)
 api.include_router(admin.router)
 

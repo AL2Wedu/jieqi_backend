@@ -68,10 +68,22 @@ def _elapsed_since_last_sync(db: Session, player: Player, now: datetime) -> floa
 
 
 def sync_world(db: Session, player: Player, now: datetime | None = None) -> None:
-    """同步并写回累计世界时间 + 在线心跳。玩家每次认证请求都会调用。"""
+    """同步并写回累计世界时间 + 在线心跳。玩家每次认证请求都会调用。
+
+    注销用户(status=2)世界冻结:只刷心跳,不推进 world_accum。
+    """
+    from app.models import User
+
+    user = db.query(User).filter(User.id == player.user_id).first()
+    frozen = user is not None and user.status == 2
     cfg = world_config(db)
     now = now or datetime.now(timezone.utc)
     last_sync = ensure_aware(player.world_last_sync)
+    if frozen:
+        # 注销留档:世界时钟冻结在注销时刻,不再推进
+        player.world_last_sync = now
+        player.last_active_at = now
+        return
     if last_sync is None:
         # 首次:继承全局参考世界位置(老玩家零成本迁移)
         player.world_accum = global_elapsed(db, now)

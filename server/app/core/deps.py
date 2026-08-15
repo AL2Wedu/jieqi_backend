@@ -35,6 +35,8 @@ def get_current_player(
         raise AppError("UNAUTHORIZED", "玩家不存在", http_status=401, code=10002)
     # 封禁即时生效:已登录 token 同样拒绝(登录与存量会话统一拦截)
     user = db.query(User).filter(User.id == player.user_id).first()
+    if user is not None and user.status == 2:
+        raise AppError("USER_DEACTIVATED", "账号已注销", http_status=403, code=20007)
     if user is not None and user.status != 1:
         raise AppError("USER_BANNED", "账号已被封禁", http_status=403, code=20004)
     from app.services import world_service

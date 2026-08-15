@@ -135,6 +135,9 @@ def list_users(db: Session, page: int, page_size: int) -> dict:
 
 
 def set_user_status(db: Session, user_id: str, status: int) -> dict:
+    """设置用户状态:1 正常 / 0 封禁 / 2 注销(留档冻结)。"""
+    if status not in (0, 1, 2):
+        raise AppError("INVALID_PARAMS", "status 只能是 0(封禁)/1(正常)/2(注销)", code=10001)
     try:
         user = db.query(User).filter(User.id == uuid.UUID(user_id)).first()
     except ValueError:
@@ -142,8 +145,31 @@ def set_user_status(db: Session, user_id: str, status: int) -> dict:
     if not user:
         raise AppError("USER_NOT_FOUND", "用户不存在", code=20002)
     user.status = status
+    if status == 2 and user.deactivated_at is None:
+        user.deactivated_at = datetime.now(timezone.utc)
+    elif status == 1:
+        user.deactivated_at = None
     db.commit()
     return {"user_id": str(user.id), "name": user.name, "status": user.status}
+
+
+def rename_user(db: Session, user_id: str, new_name: str) -> dict:
+    """管理端改名(无限速):同步 User.name + Player.name。"""
+    new_name = (new_name or "").strip()
+    if not new_name or len(new_name) > 16:
+        raise AppError("INVALID_PARAMS", "名字需 1-16 个字符", code=10001)
+    try:
+        user = db.query(User).filter(User.id == uuid.UUID(user_id)).first()
+    except ValueError:
+        user = None
+    if not user:
+        raise AppError("USER_NOT_FOUND", "用户不存在", code=20002)
+    player = db.query(Player).filter(Player.user_id == user.id).first()
+    user.name = new_name
+    if player:
+        player.name = new_name
+    db.commit()
+    return {"user_id": str(user.id), "name": new_name}
 
 
 # ---------- 全局配置 ----------
