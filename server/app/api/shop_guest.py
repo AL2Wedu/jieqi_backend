@@ -22,6 +22,19 @@ class ChatPayload(BaseModel):
     message: str
 
 
+@router.get("/encounter")
+def guest_encounter(
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """遇到一位随机客人(名称+头像),并锁定到买卖完成。
+
+    锁定语义:会话结束(成交/关闭/赶客)前,encounter 一直返回同一位客人;
+    结束后解锁,下次 encounter 重新随机。随机源为密码学安全 SystemRandom。
+    """
+    return ok(guest_service.encounter_guest(db, player))
+
+
 @router.post("/start")
 def guest_start(
     req: StartPayload,

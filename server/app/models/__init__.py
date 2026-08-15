@@ -86,6 +86,8 @@ class Player(Base):
     weed_scheduled_accum: Mapped[float | None] = mapped_column(Float, nullable=True)
     # 新手教学:教学期间世界恒为清明(首个可播种节气)、不产生虫害;完成后置 False 恢复正常
     tutorial: Mapped[bool] = mapped_column(Boolean, default=True)
+    # AI 客人锁定:encounter 随机到的客人 key;会话结束前一直返回同一位(买卖完成才解锁)
+    guest_encounter_key: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
 class CoinTransaction(Base):

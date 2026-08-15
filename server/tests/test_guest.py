@@ -341,6 +341,69 @@ def test_cooldown_blocks_start(client):
             save_guest_config(db, {"guest.cooldown_seconds": 30})
 
 
+# ---------- T10 encounter 随机客人 + 锁定 ----------
+
+def test_encounter_returns_guest_with_avatar(client):
+    """encounter 返回随机客人(名称+头像 URL),头像指向 animals 素材。"""
+    h = _reg(client, "guest_enc1")
+    r = client.get("/v1/shop/guest/encounter", headers=h).json()
+    assert r["code"] == 0
+    d = r["data"]
+    assert d["guest_key"] in ("thrifty_granny", "foodie_chef", "curious_student")
+    assert d["guest_name"] in ("王奶奶", "陈大厨", "小美")
+    assert d["avatar_url"].startswith("/v1/assets/images/animals/")
+    assert d["avatar_url"].endswith("?w=128")
+    assert d["locked"] is False
+
+
+def test_encounter_locks_until_session_ends(client, monkeypatch):
+    """锁定:会话结束前 encounter 返回同一位;成交后解锁,重新随机。"""
+    h = _reg(client, "guest_enc2")
+    crop = _harvest_rice(client, h)
+    # 第一次 encounter → 锁定
+    d1 = client.get("/v1/shop/guest/encounter", headers=h).json()["data"]
+    assert d1["locked"] is False
+    # 再 encounter → 同一位(锁定中)
+    d2 = client.get("/v1/shop/guest/encounter", headers=h).json()["data"]
+    assert d2["guest_key"] == d1["guest_key"]
+    assert d2["guest_name"] == d1["guest_name"]
+    assert d2["locked"] is True
+    # start 用锁定的客人(遇到谁就是谁)
+    s = _start(client, h, crop["crop_id"])
+    assert s["guest_key"] == d1["guest_key"]
+    # 成交 → 解锁
+    _mock_chat(
+        monkeypatch,
+        f'{{"reply_text": "行,成交!", "guest_name": "{d1["guest_name"]}", "mood": "happy", "offer": {s["offer"]}, "deal": true}}',
+    )
+    r = client.post(
+        f"/v1/shop/guest/{s['session_id']}/chat", json={"message": "成交"}, headers=h
+    ).json()
+    assert r["code"] == 0 and r["data"]["status"] == "done"
+    # 解锁后 encounter 重新随机(可能同一位,但 locked=False 且不再锁定)
+    d3 = client.get("/v1/shop/guest/encounter", headers=h).json()["data"]
+    assert d3["locked"] is False
+
+
+def test_encounter_unlock_on_cancel(client):
+    """赶客(cancel)同样解锁。"""
+    h = _reg(client, "guest_enc3")
+    crop = _harvest_rice(client, h)
+    d1 = client.get("/v1/shop/guest/encounter", headers=h).json()["data"]
+    s = _start(client, h, crop["crop_id"])
+    assert s["guest_key"] == d1["guest_key"]
+    r = client.post(f"/v1/shop/guest/{s['session_id']}/cancel", headers=h).json()
+    assert r["code"] == 0 and r["data"]["status"] == "cancelled"
+    d2 = client.get("/v1/shop/guest/encounter", headers=h).json()["data"]
+    assert d2["locked"] is False
+
+
+def test_encounter_requires_login(client):
+    """未登录 → 401。"""
+    r = client.get("/v1/shop/guest/encounter")
+    assert r.status_code == 401
+
+
 # ---------- 修复回归:议价不超 max_value ----------
 
 def test_guest_offer_capped_by_max_value():

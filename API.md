@@ -134,11 +134,12 @@
 | 28 | GET | `/v1/pest/state` | 🔐 | 我的虫害状态(季节/活跃窗/下次触发/进行中事件) |
 | 29 | POST | `/v1/farm/pest/{pest_id}/result` | 🔐 | 大虫害提交成绩(防作弊校验+奖惩) |
 | 30 | POST | `/v1/farm/pest/{pest_id}/drive-away` | 🔐 | 驱赶小虫害寄生目标 |
-| 31 | POST | `/v1/shop/guest/start` | 🔐 | 开一单 AI 客人议价(1 份收成) |
-| 32 | POST | `/v1/shop/guest/{session_id}/chat` | 🔐 | 跟客人对话一轮(deal=true 当场成交) |
-| 33 | POST | `/v1/shop/guest/{session_id}/accept` | 🔐 | 接受客人当前报价 → 成交结算 |
-| 34 | POST | `/v1/shop/guest/{session_id}/cancel` | 🔐 | 赶客放弃,不成交 |
-| 35 | GET | `/v1/shop/guest/{session_id}` | 🔐 | 会话快照(含消息历史,断线重进用) |
+| 31 | GET | `/v1/shop/guest/encounter` | 🔐 | 遇到随机客人(名称+头像),锁定到买卖完成 | 
+| 32 | POST | `/v1/shop/guest/start` | 🔐 | 开一单 AI 客人议价(1 份收成) |
+| 33 | POST | `/v1/shop/guest/{session_id}/chat` | 🔐 | 跟客人对话一轮(deal=true 当场成交) |
+| 34 | POST | `/v1/shop/guest/{session_id}/accept` | 🔐 | 接受客人当前报价 → 成交结算 |
+| 35 | POST | `/v1/shop/guest/{session_id}/cancel` | 🔐 | 赶客放弃,不成交 |
+| 36 | GET | `/v1/shop/guest/{session_id}` | 🔐 | 会话快照(含消息历史,断线重进用) |
 | 36 | GET | `/v1/social/search?q=&exact=` | 🔐 | 按名字查玩家(排除自己):模糊包含 / 精确匹配(重名全返回) |
 | 37 | GET | `/v1/social/players/{player_id}` | 🔐 | UUID 查询:任意玩家公开资料 + 关系状态 |
 | 38 | GET | `/v1/social/players/{player_id}/farm` | 🔐 | 公开访客模式:任意玩家农场参观(田格数据,只读无副作用) |
@@ -596,11 +597,23 @@
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/v1/shop/guest/start` | body `{crop_id}` → 随机客人 + 开场白 + 初始报价 |
+| GET | `/v1/shop/guest/encounter` | 遇到随机客人 → `{guest_key, guest_name, avatar_url, locked}`;**锁定**:会话结束前一直返回同一位,买卖完成才解锁重新随机 |
+| POST | `/v1/shop/guest/start` | body `{crop_id}` → 用 encounter 锁定的客人(无锁定则随机)+ 开场白 + 初始报价 |
 | POST | `/v1/shop/guest/{session_id}/chat` | body `{message}` → AI 回复一轮 |
 | POST | `/v1/shop/guest/{session_id}/accept` | 接受客人当前报价 → 成交结算 |
 | POST | `/v1/shop/guest/{session_id}/cancel` | 赶客,不成交 |
 | GET | `/v1/shop/guest/{session_id}` | 快照(含全部消息历史,断线重进) |
+
+**encounter 响应(data)字段:**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `guest_key` | str | 客人标识(thrifty_granny/foodie_chef/curious_student) |
+| `guest_name` | str | 客人名字(王奶奶/陈大厨/小美) |
+| `avatar_url` | str | 头像地址 `/v1/assets/images/animals/{emotion}/{animal}.png?w=128` |
+| `locked` | bool | `false`=本次新随机并锁定;`true`=返回已锁定的同一位 |
+
+> **锁定语义**:encounter 随机后持久化锁定到该玩家;会话结束(成交/关闭/赶客)自动解锁,下次 encounter 重新随机。随机源为密码学安全 `SystemRandom`(防预测/防刷)。
 
 **chat 响应(data)字段:**
 

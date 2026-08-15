@@ -84,7 +84,50 @@ def load_guests() -> list[dict]:
 
 
 def _pick_guest() -> dict:
-    return random.choice(load_guests())
+    """安全随机选客:密码学安全随机源(SystemRandom),防预测/防刷。"""
+    guests = load_guests()
+    return guests[random.SystemRandom().randrange(len(guests))]
+
+
+def _guest_by_key(key: str) -> dict | None:
+    for g in load_guests():
+        if g["key"] == key:
+            return g
+    return None
+
+
+def _avatar_url(g: dict) -> str:
+    """客人头像 URL:guests.json 的 avatar 字段(animals 素材)→ /v1/assets/images/..."""
+    return f"/v1/assets/images/{g['avatar']}?w=128"
+
+
+def encounter_guest(db: Session, player: Player) -> dict:
+    """遇到客人:返回随机客人(名称+头像),并锁定到该玩家。
+
+    锁定语义:玩家已有 guest_encounter_key(上次遇到未完成买卖)→ 返回同一位;
+    无锁定 → SystemRandom 安全随机一位并持久化锁定。会话结束(成交/关闭/赶客)
+    时由 _finish 解锁,之后 encounter 才会重新随机。
+    """
+    if player.guest_encounter_key:
+        g = _guest_by_key(player.guest_encounter_key)
+        if g:
+            return {
+                "guest_key": g["key"],
+                "guest_name": g["name"],
+                "avatar_url": _avatar_url(g),
+                "locked": True,
+            }
+        # 锁定 key 失效(guests.json 改版)→ 解锁重随机
+        player.guest_encounter_key = None
+    g = _pick_guest()
+    player.guest_encounter_key = g["key"]
+    db.commit()
+    return {
+        "guest_key": g["key"],
+        "guest_name": g["name"],
+        "avatar_url": _avatar_url(g),
+        "locked": False,
+    }
 
 
 # ---------- 会话 ----------
@@ -161,7 +204,11 @@ def start_guest(db: Session, player: Player, crop_id: str) -> dict:
     season = shop_service.current_season(db, player)
     base = shop_service._crop_price(crop, settings, season)
     wilted = shop_service._wilted_price(crop, settings, season)
-    guest = _pick_guest()
+    # 客人:优先用 encounter 锁定的那位(遇到谁就是谁);无锁定则安全随机
+    guest = _guest_by_key(player.guest_encounter_key) if player.guest_encounter_key else None
+    if guest is None:
+        guest = _pick_guest()
+        player.guest_encounter_key = guest["key"]
     lo, hi = guest["offer_range"]
     target_min = max(1, round(base * lo))
     target_max = max(target_min, round(base * hi))
@@ -379,6 +426,9 @@ def get_guest(db: Session, player: Player, session_id: str) -> dict:
 def _finish(db: Session, player: Player, s: AiGuestSession, status: str) -> None:
     s.status = status
     s.finished_at = datetime.now(timezone.utc)
+    # 买卖结束 → 解锁客人:下次 encounter 重新随机
+    if player.guest_encounter_key == s.guest_key:
+        player.guest_encounter_key = None
 
 
 def _try_finish(db: Session, s: AiGuestSession, status: str) -> bool:
@@ -411,10 +461,13 @@ def _settle_session(db: Session, player: Player, s: AiGuestSession, unit_price: 
 
 
 def _snapshot(s: AiGuestSession) -> dict:
+    g = _guest_by_key(s.guest_key) or {}
     return {
         "session_id": str(s.id),
         "crop_id": str(s.crop_id),
+        "guest_key": s.guest_key,
         "guest_name": s.guest_name,
+        "avatar_url": _avatar_url(g) if g else "",
         "mood": s.last_mood,
         "offer": s.offer,
         "status": s.status,
