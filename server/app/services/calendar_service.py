@@ -43,6 +43,18 @@ def term_at(db: Session, elapsed_sec: float) -> tuple[TermConfig, int, int]:
     return last, cycle, 0
 
 
+def term_start_elapsed(db: Session, term_index: int) -> float:
+    """给定节气序号(1-based),返回其开始时刻对应的累计世界秒(该节气之前所有时长之和)。
+
+    用于把"某个节气"映射回世界秒位置(如教学锁定在清明 = term_start_elapsed(db, 5))。
+    """
+    total = 0.0
+    for t in _terms(db):
+        if t.term_index < term_index:
+            total += t.duration_seconds
+    return total
+
+
 def calendar_dict(term: TermConfig, cycle: int, remaining_sec: int) -> dict:
     return {
         "term_index": term.term_index,

@@ -40,7 +40,7 @@ def complete_tutorial(
     player: Player = Depends(get_current_player),
     db: Session = Depends(get_db),
 ):
-    """结束新手教学:恢复正常世界时钟与虫害调度(教学期间世界恒为立春、无虫害)。"""
+    """结束新手教学:恢复正常世界时钟与虫害调度(教学期间世界恒为清明、无虫害)。"""
     return ok(player_service.complete_tutorial(db, player))
 
 

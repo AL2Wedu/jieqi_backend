@@ -107,13 +107,24 @@ def _rate(db: Session, player: Player, factor: float) -> float:
     return base * factor
 
 
+# 新手教学世界锁定节气 = 清明(term 5):首个可播种节气,避开立春~春分(1-4)的全服空窗
+TUTORIAL_TERM_INDEX = 5
+
+
+def tutorial_term_start(db: Session) -> float:
+    """教学世界锁定位置 = 清明节气开始时的累计世界秒。"""
+    from app.services.calendar_service import term_start_elapsed
+
+    return term_start_elapsed(db, TUTORIAL_TERM_INDEX)
+
+
 def current_term(db: Session, player: Player) -> tuple:
     """玩家当前节气三元组 (term, cycle, remaining_sec)。
 
-    新手教学期间世界恒为立春(term 1),不随世界时钟推进。
+    新手教学期间世界恒为清明(term 5,首个可播种节气),不随世界时钟推进。
     """
     if getattr(player, "tutorial", False):
-        return term_at(db, 0.0)
+        return term_at(db, tutorial_term_start(db))
     return term_at(db, float(player.world_accum or 0.0))
 
 
@@ -124,6 +135,8 @@ def current_calendar(db: Session, player: Player) -> dict:
 
 def peek_term(db: Session, player: Player, now: datetime | None = None) -> tuple:
     """只读估算当前节气(不落库),供管理端列表用。"""
+    if getattr(player, "tutorial", False):
+        return term_at(db, tutorial_term_start(db))  # 教学期间:世界锁定清明
     now = now or datetime.now(timezone.utc)
     cfg = world_config(db)
     last_sync = ensure_aware(player.world_last_sync)

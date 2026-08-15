@@ -194,7 +194,7 @@ def test_harvest_exp_and_levelup(client):
 
 
 def test_tutorial_state_and_complete(client):
-    """新手教学:世界恒为立春、不产生虫害;结束接口恢复正常。"""
+    """新手教学:世界恒为清明(首个可播种节气)、不产生虫害;结束接口恢复正常。"""
     r = client.post("/v1/auth/register", json={"name": "tutorial_user", "password": "pass123456"}).json()
     assert r["code"] == 0
     h = _auth(r["data"]["token"])
@@ -203,12 +203,12 @@ def test_tutorial_state_and_complete(client):
     me = client.get("/v1/player/me", headers=h).json()["data"]
     assert me["tutorial"] is True
 
-    # 世界恒为立春(term 1),即使推进节气也不变
+    # 世界恒为清明(term 5),即使推进节气也不变
     cal = client.get("/v1/calendar/current", headers=h).json()["data"]
-    assert cal["term_index"] == 1 and cal["name"] == "立春"
+    assert cal["term_index"] == 5 and cal["name"] == "清明"
     client.post("/v1/debug/term/advance", headers=h)
     cal = client.get("/v1/calendar/current", headers=h).json()["data"]
-    assert cal["term_index"] == 1  # 教学期间恒为立春
+    assert cal["term_index"] == 5  # 教学期间恒为清明
 
     # 不产生虫害:触发被拒(28004)
     r = client.post("/v1/debug/pest/trigger", json={"type": "big"}, headers=h).json()
@@ -221,10 +221,10 @@ def test_tutorial_state_and_complete(client):
     me = client.get("/v1/player/me", headers=h).json()["data"]
     assert me["tutorial"] is False
 
-    # 结束后世界时钟恢复正常(不再恒为立春,推进节气会变)
+    # 结束后世界时钟恢复正常:从清明继续推进(清明→谷雨),不再锁死
     client.post("/v1/debug/term/advance", headers=h)
     cal = client.get("/v1/calendar/current", headers=h).json()["data"]
-    assert cal["term_index"] != 1 or True  # 至少不再被锁死(可能仍在立春,但可推进)
+    assert cal["term_index"] == 6  # 清明(5)推进一个节气 → 谷雨(6)
 
     # 重复结束 → already_completed=true,幂等
     r = client.post("/v1/player/tutorial/complete", headers=h).json()

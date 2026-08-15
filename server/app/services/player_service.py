@@ -84,9 +84,9 @@ def get_by_uid(db: Session, player: Player, uid_num: int) -> dict:
 def complete_tutorial(db: Session, player: Player) -> dict:
     """结束新手教学:恢复正常世界时钟与虫害调度。
 
-    教学期间世界恒为立春、不产生虫害;结束后:
+    教学期间世界恒为清明(首个可播种节气)、不产生虫害;结束后:
     - tutorial 置 False
-    - 世界时钟从当前全局纪元位置开始(继承全局参考,老玩家零成本迁移)
+    - 世界从清明无缝续跑(教学期间锁定在清明,结束不回退到立春~春分的全服空窗)
     - 清空虫害排程(由 sync_offline 在下次触发时按季节重新排)
     """
     if not getattr(player, "tutorial", False):
@@ -94,7 +94,11 @@ def complete_tutorial(db: Session, player: Player) -> dict:
     player.tutorial = False
     from app.services import world_service
 
-    world_service.sync_world(db, player)  # 初始化世界时钟(继承全局纪元位置)
+    world_service.sync_world(db, player)  # 更新在线心跳 + 世界累计(恢复正常推进)
+    # 无缝续跑:世界至少从清明起推进,不因教学期间世界冻结而回退到空窗
+    player.world_accum = max(
+        float(player.world_accum or 0.0), world_service.tutorial_term_start(db)
+    )
     player.next_pest_at = None  # 清空虫害排程,由 sync_offline 按季节重排
     db.commit()
     return {"tutorial": False, "already_completed": False}
