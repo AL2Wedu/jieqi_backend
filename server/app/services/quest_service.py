@@ -94,10 +94,27 @@ def claim(db: Session, player: Player, quest_id: str) -> dict:
         uq.completed_at = _utcnow()
     if uq.status == 2:
         raise AppError("QUEST_ALREADY_CLAIMED", "奖励已领取", code=25003)
+    # 幂等抢占:条件更新把任务从"已完成"置为"已领取",仅当仍为 status=1。
+    # 并发双领时只有一个 UPDATE 命中(rowcount=1),另一个 rowcount=0 → 拒绝,
+    # 杜绝重复刷金币/经验/道具。
+    now = _utcnow()
+    claimed = (
+        db.query(UserQuest)
+        .filter(
+            UserQuest.player_id == player.id,
+            UserQuest.quest_id == qid,
+            UserQuest.status == 1,
+        )
+        .update({UserQuest.status: 2, UserQuest.claimed_at: now})
+    )
+    if claimed != 1:
+        # 已被并发请求领取或状态异常
+        db.commit()
+        raise AppError("QUEST_ALREADY_CLAIMED", "奖励已领取", code=25003)
     quest = db.query(Quest).filter(Quest.id == qid).first()
     reward = grant_reward(db, player, quest.reward, reason=f"quest:{quest.code}")
     uq.status = 2
-    uq.claimed_at = _utcnow()
+    uq.claimed_at = now
     db.commit()
     return {
         "quest_id": quest_id,

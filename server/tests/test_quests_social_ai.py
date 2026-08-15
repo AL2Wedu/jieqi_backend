@@ -380,3 +380,35 @@ def test_social_search_limit_and_like_escape(client):
     assert "like_100%" in names
     # 通配符 % 不再匹配所有名字(仅精确含字面 % 的)
     assert not any(n not in ("like_100%",) for n in names) or len(names) <= 2
+
+
+def test_quest_double_claim_guard(client):
+    """领奖原子抢占:同任务重复领取只发一次奖励(并发/双击防护)。"""
+    h = _reg(client, "quest_claim_guard")
+    items = {q["code"]: q for q in client.get("/v1/quests", headers=h).json()["data"]["items"]}
+    qid = items["q_harvest_1"]["quest_id"]
+
+    for _ in range(30):
+        cal = client.get("/v1/calendar/current", headers=h).json()["data"]
+        if 5 <= cal["term_index"] <= 8:
+            break
+        client.post("/v1/debug/term/advance", headers=h)
+    shop = client.get("/v1/shop/items", headers=h).json()["data"]["items"]
+    seed = next(i for i in shop if i["code"] == "seed_shuidao")
+    client.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=h)
+    st = client.get("/v1/farm/state", headers=h).json()["data"]
+    pid = st["plots"][0]["plot_id"]
+    client.post(f"/v1/farm/plots/{pid}/sow", json={"crop_id": seed["effect"]["crop_id"]}, headers=h)
+    client.post("/v1/debug/grow", json={"plot_id": pid}, headers=h)
+    client.post(f"/v1/farm/plots/{pid}/harvest", headers=h)
+    client.get("/v1/quests", headers=h)  # 状态→已完成
+
+    before = client.get("/v1/player/me", headers=h).json()["data"]["coins"]
+    # 第一次领成功
+    r = client.post(f"/v1/quests/{qid}/claim", headers=h).json()
+    assert r["code"] == 0
+    # 重复领(含并发场景的等价串行模拟)→ 25003,金币不再增加
+    r = client.post(f"/v1/quests/{qid}/claim", headers=h).json()
+    assert r["code"] == 25003
+    after = client.get("/v1/player/me", headers=h).json()["data"]["coins"]
+    assert after == before + 20  # 只发一次奖励

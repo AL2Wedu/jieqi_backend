@@ -86,9 +86,24 @@ def claim(db: Session, player: Player, achievement_id: str) -> dict:
         ua.completed_at = _utcnow()
     if ua.claimed_at is not None:
         raise AppError("ACHIEVEMENT_ALREADY_CLAIMED", "奖励已领取", code=26003)
+    # 幂等抢占:条件更新置 claimed_at,仅当仍未领取;并发双领时只有一次命中,
+    # 另一个 rowcount=0 → 拒绝,杜绝重复刷金币/经验/道具。
+    now = _utcnow()
+    claimed = (
+        db.query(UserAchievement)
+        .filter(
+            UserAchievement.player_id == player.id,
+            UserAchievement.achievement_id == aid,
+            UserAchievement.claimed_at.is_(None),
+        )
+        .update({UserAchievement.claimed_at: now})
+    )
+    if claimed != 1:
+        db.commit()
+        raise AppError("ACHIEVEMENT_ALREADY_CLAIMED", "奖励已领取", code=26003)
     a = db.query(Achievement).filter(Achievement.id == aid).first()
     reward = grant_reward(db, player, a.reward, reason=f"achievement:{a.code}")
-    ua.claimed_at = _utcnow()
+    ua.claimed_at = now
     db.commit()
     return {
         "achievement_id": achievement_id,
