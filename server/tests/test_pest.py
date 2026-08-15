@@ -431,3 +431,30 @@ def test_destroyed_crop_cannot_harvest_and_plot_resows(client):
     client.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=h)
     r = client.post(f"/v1/farm/plots/{pid}/sow", json={"crop_id": crop_id}, headers=h).json()
     assert r["code"] == 0, r  # 可重种,不再死局
+
+
+def test_big_pest_score_clamp_anti_cheat(client):
+    """大虫害成绩 clamp:score>max_score 会被收敛,不能靠 100/1 恒胜刷奖励。"""
+    h = _reg(client, "pest_score_clamp")
+    _plant(client, h, n=1)
+
+    r = client.post("/v1/debug/pest/trigger", json={"type": "big"}, headers=h).json()
+    assert r["code"] == 0
+    ev = r["data"]["payload"]
+    # 回拨 20s 绕过耗时校验
+    _backdate_event(client, h, ev["pest_id"], 20)
+    # 提交 score=100/max_score=1:clamp 后 score→1,max_score→1,ratio=1 → 达标(仍判胜,但不再"作弊膨胀")
+    r = client.post(
+        f"/v1/farm/pest/{ev['pest_id']}/result",
+        json={"score": 100, "max_score": 1, "miss_count": 0},
+        headers=h,
+    ).json()
+    assert r["code"] == 0, r
+    assert r["data"]["score"] == 1 and r["data"]["max_score"] == 1  # 已 clamp
+    # 重复提交 → 事件已结束
+    r = client.post(
+        f"/v1/farm/pest/{ev['pest_id']}/result",
+        json={"score": 100, "max_score": 100, "miss_count": 0},
+        headers=h,
+    ).json()
+    assert r["code"] == 28005

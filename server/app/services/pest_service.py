@@ -354,11 +354,29 @@ def submit_big_result(
             f"成绩提交过早(广播后需至少 {int(min_elapsed)} 秒)",
             code=28006,
         )
+    # 防作弊:score/max_score 来自客户端,须约束区间,杜绝 score>max_score 恒胜
+    # (如提交 100/1 ratio=100 → 必然达标)。clamp score 到 [0, max_score],max_score 至少 1。
+    max_score = max(1, int(max_score))
+    score = max(0, min(int(score), max_score))
+    miss_count = max(0, int(miss_count))
     ev.score = score
     ev.max_score = max_score
     ev.miss_count = miss_count
     ev.result_at = now
-    ratio = (score / max_score) if max_score and max_score > 0 else 0.0
+    ratio = (score / max_score) if max_score > 0 else 0.0
+    # 幂等抢占:原子终结事件(status 0→1),防并发重复提交双发奖励/双挂惩罚
+    claimed = (
+        db.query(PestEvent)
+        .filter(
+            PestEvent.id == ev.id,
+            PestEvent.player_id == player.id,
+            PestEvent.status == 0,
+        )
+        .update({PestEvent.status: 1})
+    )
+    if claimed != 1:
+        db.commit()
+        raise AppError("PEST_NOT_FOUND", "虫害事件不存在或已处理", code=28005)
     if ratio >= float(cfg["pest.pass_ratio"]):
         # 奖励:金币 + 1 个随机道具(1~3 个)
         pool = (
