@@ -44,6 +44,9 @@ from app.services.farm_service import crop_view, season_name
 from app.services.goal_service import grant_reward
 from app.services import world_service
 
+# 密码学安全随机源(调度间隔/类型/地块选择统一使用,防预测)
+_rng = random.SystemRandom()
+
 _KEYS = (
     "pest.enabled",
     "pest.events_per_window",
@@ -135,7 +138,7 @@ def _interval_seconds(db: Session, cfg: dict) -> float:
     window = int(cfg["pest.window_terms"]) * avg_dur
     per = max(1, int(cfg["pest.events_per_window"]))
     mean = window / per
-    return mean * random.uniform(0.5, 1.5)
+    return mean * _rng.uniform(0.5, 1.5)
 
 
 def _current_season(db: Session, player: Player) -> str:
@@ -260,7 +263,7 @@ def _spawn_small(db: Session, player: Player, count: int, now: datetime | None =
     if not plots:
         raise AppError("PEST_NO_TARGET", "没有可寄生的作物", code=28004)
     n = min(count, len(plots))
-    chosen = random.sample(plots, n)
+    chosen = _rng.sample(plots, n)
     ev = PestEvent(player_id=player.id, type="small", status=0, broadcast_at=now)
     db.add(ev)
     db.flush()
@@ -309,7 +312,7 @@ def fire_pest(db: Session, player: Player, forced_type: str | None = None) -> di
     if has_active_pest(db, player):
         raise AppError("PEST_BUSY", "已有进行中的虫害", code=28003)
     ptype = forced_type or (
-        "big" if random.random() < season_big_ratio(db, player, cfg) else "small"
+        "big" if _rng.random() < season_big_ratio(db, player, cfg) else "small"
     )
     now = _utcnow()
     if ptype == "big":
@@ -328,7 +331,7 @@ def fire_pest(db: Session, player: Player, forced_type: str | None = None) -> di
             "duration_seconds": ev.duration_seconds,
         }
     else:
-        payload = _spawn_small(db, player, count=random.randint(1, 5), now=now)
+        payload = _spawn_small(db, player, count=_rng.randint(1, 5), now=now)
     schedule_next(db, player, now)
     db.commit()
     return {
@@ -370,10 +373,11 @@ def submit_big_result(
             code=28006,
         )
     # 防作弊:score/max_score 来自客户端,须约束区间,杜绝 score>max_score 恒胜
-    # (如提交 100/1 ratio=100 → 必然达标)。clamp score 到 [0, max_score],max_score 至少 1。
-    max_score = max(1, int(max_score))
+    # (如提交 100/1 ratio=100 → 必然达标)。max_score 由服务端按音游时长推导
+    # (时长 × 10,客户端自报值仅作参考),score clamp 到 [0, max_score]。
+    max_score = max(1, int(ev.duration_seconds or 0) * 10)
     score = max(0, min(int(score), max_score))
-    miss_count = max(0, int(miss_count))
+    miss_count = max(0, min(int(miss_count), 1000))
     ev.score = score
     ev.max_score = max_score
     ev.miss_count = miss_count
@@ -401,8 +405,8 @@ def submit_big_result(
         )
         reward = {"coins": int(cfg["pest.reward_coins"]), "exp": 5}
         if pool:
-            gift = random.choice(pool)
-            reward["items"] = [{"code": gift.code, "quantity": random.randint(1, 3)}]
+            gift = _rng.choice(pool)
+            reward["items"] = [{"code": gift.code, "quantity": _rng.randint(1, 3)}]
         granted = grant_reward(
             db, player, reward, reason=f"pest_big:{ev.id.hex[:8]}"
         )

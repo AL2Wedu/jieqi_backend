@@ -56,7 +56,7 @@ def rename_player(db: Session, player: Player, new_name: str) -> dict:
                 code=20008,
             )
     user.name = new_name
-    player.name = new_name
+    # Player.name 已废弃(展示统一走 User.name),不再双写
     player.rename_last_at = now
     db.commit()
     return {

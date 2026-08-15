@@ -222,7 +222,21 @@ def buy(db: Session, player: Player, item_id: str, quantity: int) -> dict:
         raise AppError(
             "NOT_ENOUGH_STOCK", f"库存不足(剩余 {row.stock})", code=22006
         )
-    player.coins -= price
+    # 原子扣金币:条件更新(coins >= price),防并发双花(读改写竞态)
+    coin_claimed = (
+        db.query(Player)
+        .filter(Player.id == player.id, Player.coins >= price)
+        .update({Player.coins: Player.coins - price})
+    )
+    if coin_claimed != 1:
+        # 并发下余额已被其他请求扣空:回滚库存
+        db.query(UserShopItem).filter(
+            UserShopItem.player_id == player.id,
+            UserShopItem.item_id == iid,
+        ).update({UserShopItem.stock: UserShopItem.stock + quantity})
+        db.commit()
+        raise AppError("NOT_ENOUGH_COINS", "金币不足", code=22003)
+    db.refresh(player)
     ui = (
         db.query(UserItem)
         .filter(UserItem.player_id == player.id, UserItem.item_id == iid)
@@ -288,7 +302,8 @@ def _settle_sale(
         "quantity": quantity,
         "wilted": wilted,
         "price": price,
-        "unit_price": price // quantity,  # 混合单价(正常与枯萎均价)
+        "normal_unit_price": unit_price,  # 正常收成单价
+        "wilted_unit_price": wilted_unit_price,  # 枯萎劣质单价
         "storage_after": (row.quantity if row else 0) + (row.wilted_quantity if row else 0),
         "coins_balance": player.coins,
     }

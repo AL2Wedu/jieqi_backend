@@ -1,4 +1,9 @@
-"""调试接口(demo 专用):改配置 / 推进节气 / 催熟作物。上线由 DEBUG_ENABLED 关闭。"""
+"""调试接口(demo 专用):改配置 / 推进节气 / 催熟作物。上线由 DEBUG_ENABLED 关闭。
+
+安全:
+- debug_enabled 默认 False(需显式 DEBUG_ENABLED=true 开启,上线必须保持关闭)
+- `/debug/config` 禁止写 ai.* / admin.* / jwt.* 敏感键(只能走管理后台)
+"""
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends
@@ -13,6 +18,9 @@ from app.services import farm_service, pest_service, world_service
 
 router = APIRouter(prefix="/debug", tags=["debug"])
 
+# 敏感配置键:禁止经 /debug/config 修改(只能走管理后台)
+_SENSITIVE_KEYS = ("ai.", "admin.", "jwt.")
+
 
 def _guard() -> None:
     if not settings.debug_enabled:
@@ -26,6 +34,10 @@ def set_config(
     db: Session = Depends(get_db),
 ):
     _guard()
+    if any(req.key.startswith(prefix) for prefix in _SENSITIVE_KEYS):
+        raise AppError(
+            "INVALID_PARAMS", "该配置键为敏感项,请通过管理后台修改", code=10001
+        )
     cfg = db.query(GameConfig).filter(GameConfig.key == req.key).first()
     if cfg:
         cfg.value = req.value

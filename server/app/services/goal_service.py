@@ -61,9 +61,14 @@ def evaluate(db: Session, player: Player, condition: dict) -> tuple[int, int]:
             or 0
         )
     elif ctype == "spend_coins":
+        # 只统计玩家主动消费(shop_buy/use 等),排除管理端改币(admin_edit)与注册赠送
         spent = (
             db.query(func.coalesce(func.sum(CoinTransaction.amount), 0))
-            .filter(CoinTransaction.player_id == player.id, CoinTransaction.amount < 0)
+            .filter(
+                CoinTransaction.player_id == player.id,
+                CoinTransaction.amount < 0,
+                CoinTransaction.reason.notlike("admin_edit%"),
+            )
             .scalar()
             or 0
         )

@@ -37,6 +37,7 @@ def get_ai_config(db: Session) -> dict:
 
 
 def masked_config(db: Session) -> dict:
+    """管理端可见配置:api_key 打码(仅前 4 后 4),防 DB/后台泄露明文。"""
     cfg = get_ai_config(db)
     key = cfg["api_key"]
     cfg["api_key"] = (key[:4] + "****" + key[-4:]) if len(key) > 8 else ("****" if key else "")

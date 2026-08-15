@@ -445,11 +445,11 @@ def harvest(db: Session, player, plot_id: str) -> dict:
         )
         db.add(st)
         storage_after = yield_actual
-    db.commit()
     # 收获给经验(每株 +2):核心循环正反馈,附带自动升级
     from app.services.goal_service import apply_exp
 
     exp_info = apply_exp(db, player, yield_actual * 2)
+    # 单事务提交:harvested_at + 入仓 + 经验原子生效(防中途异常导致作物消失无收成)
     db.commit()
     note = (
         "已入收成仓(枯萎劣质收成,售价大打折扣),可在商店出售"

@@ -170,8 +170,7 @@ def rename_user(db: Session, user_id: str, new_name: str) -> dict:
         raise AppError("USER_NOT_FOUND", "用户不存在", code=20002)
     player = db.query(Player).filter(Player.user_id == user.id).first()
     user.name = new_name
-    if player:
-        player.name = new_name
+    # Player.name 已废弃(展示统一走 User.name),不再双写
     db.commit()
     return {"user_id": str(user.id), "name": new_name}
 

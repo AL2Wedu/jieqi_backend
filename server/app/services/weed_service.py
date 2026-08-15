@@ -17,6 +17,9 @@ from app.core.errors import AppError
 from app.models import CropInstance, Farm, GameConfig, Plot, Player, TermConfig
 from app.services import world_service
 
+# 密码学安全随机源(调度时刻/地块选择统一使用,防预测)
+_rng = random.SystemRandom()
+
 _KEYS = ("weed.enabled", "weed.slow_factor", "weed.max_plots", "weed.max_total")
 _DEFAULTS = {
     "weed.enabled": True,
@@ -75,9 +78,9 @@ def schedule_next(db: Session, player: Player) -> None:
     start, end = _term_span(db, player)
     # 本节气剩余世界秒不足 1/3 → 排到下一节气
     if end - accum < (end - start) / 3:
-        target = end + random.uniform(0.0, end - start)
+        target = end + _rng.uniform(0.0, end - start)
     else:
-        target = accum + random.uniform(0.0, (end - accum))
+        target = accum + _rng.uniform(0.0, (end - accum))
     player.weed_scheduled_accum = target
 
 
@@ -125,8 +128,8 @@ def _candidate_plots(db: Session, player: Player, cfg: dict) -> list[Plot]:
         return []
     with_crop = [p for p in plots if p.id in active_ids and not p.weeded]
     empty = [p for p in plots if p.id not in active_ids and not p.weeded]
-    random.shuffle(with_crop)
-    random.shuffle(empty)
+    _rng.shuffle(with_crop)
+    _rng.shuffle(empty)
     n = min(int(cfg["weed.max_plots"]), quota, len(plots))
     return (with_crop + empty)[:n]
 
