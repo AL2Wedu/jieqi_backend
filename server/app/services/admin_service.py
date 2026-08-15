@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.core.errors import AppError
 from app.models import (
+    CoinTransaction,
     Crop,
     CropInstance,
     CropStorage,
@@ -712,11 +713,21 @@ def update_player_assets(db: Session, user_id: str, data: dict) -> dict:
     """玩家资产编辑:金币 / 等级 / 经验 / 解锁节气(全可选)。
 
     编辑后向该玩家在线 WS 推送 resources_changed,客户端据此强制刷新本地资源。
+    金币变动写 coin_transactions 账本,保持"金币走账本"可审计原则。
     """
     player = _player_by_user(db, user_id)
+    coin_delta = None
     for field in ("coins", "level", "exp", "unlocked_term_index"):
         if field in data and data[field] is not None:
+            if field == "coins":
+                coin_delta = int(data[field]) - (player.coins or 0)
             setattr(player, field, data[field])
+    if coin_delta is not None and coin_delta != 0:
+        db.add(
+            CoinTransaction(
+                player_id=player.id, amount=coin_delta, reason="admin_edit"
+            )
+        )
     db.commit()
     assets = get_player_assets(db, user_id)
     manager.push_sync(
