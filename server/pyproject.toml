@@ -20,6 +20,12 @@ dev = [
     "httpx>=0.27",
 ]
 
+# 压测工具(loadtest/locustfile.py);`uv sync --group loadtest` 安装
+loadtest = [
+    "locust>=2.31",
+    "websocket-client>=1.8",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
