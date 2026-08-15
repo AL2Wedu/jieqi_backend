@@ -155,6 +155,17 @@
 | 33 | GET | `/v1/art/{kind}/{key}/{name}.png?w=` | 🔓 | **统一资源接口**:crops(seed/1/2/3)或 terms(main),按分辨率选档 |
 | 34 | GET | `/v1/art/terms/{term_index}.png?w=` | 🔓 | 24 节气图(1-24,兼容别名,等价 terms/{index}/main) |
 
+### 3.3.1 通用资源接口(任意类型,👑 notify 需 admin)
+
+> 除图片外,音频/配置等任意类型资源统一走 `/v1/assets`。`/v1/art` 保留为 `images` 别名(向后兼容)。
+
+| # | 方法 | 路径 | 鉴权 | 说明 |
+|---|---|---|---|---|
+| 35 | GET | `/v1/assets/{type}/{key}/{name}.{ext}?w=` | 🔓 | **通用资源接口**:type∈{images,audio,config}(注册表声明),key 可多级(如 crops/shuidao),图片走预渲染选档 |
+| 36 | GET | `/v1/assets/version` | 🔓 | 全局资源版本(逐类型/逐资源哈希) |
+| 37 | GET | `/v1/assets/manifest` | 🔓 | 资源全量清单(按类型分组 + URL 模板 + 版本) |
+| 38 | POST | `/v1/assets/notify` | 👑 | 资源更新后向全服广播 `asset_update`(客户端按 url 拉取强制更新) |
+
 ### 3.4 调试接口(7,🧪 全部需 `DEBUG_ENABLED=true` + 🔐)
 
 | # | 方法 | 路径 | 说明 |
@@ -1281,6 +1292,7 @@ GET /v1/social/players/{player_id}/farm
 | `pest_destroyed` | 寄生倒计时到点,作物被摧毁 | `{targets:[{pest_id, plot_id}]}` | 刷新地块(作物已消失) |
 | `crop_withered` | 玩家季节进入植物枯萎季节 | `{targets:[{plot_id, idx, crop_name, status:"wilted"}]}` | 显示"植物冻死了"覆盖层(作物**仍占地块**,不消失);玩家可铲除/收割 |
 | `weed_growth` | 本节气随机时刻杂草生长 | `{targets:[{plot_id, idx}]}` | 地块显示杂草(生长减速)+ 刷新 farm/state |
+| `asset_update` | 管理端 POST `/v1/assets/notify`(资源更新) | `{asset_type, key, name, url, version}` | 按 `url` 拉取;若 `version` 与本地缓存不同则**强制更新该资源** |
 
 示例:
 

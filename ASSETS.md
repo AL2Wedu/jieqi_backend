@@ -2,6 +2,8 @@
 
 > 给 Godot / 前端用的**唯一**素材速查:全部图片素材(作物图 + 24 节气图)走**同一个资源接口**,一份清单(`/v1/art/manifest`)拉全量,版本接口判断缓存刷新。
 
+> **通用资源接口(任意类型)**:除图片外,音频/配置等任意类型资源统一走 `/v1/assets`(见 §9)。`/v1/art` 保留为 `images` 别名(向后兼容)。
+
 ## 1. 统一资源接口(一个端点取全部素材)
 
 ```
@@ -171,3 +173,74 @@ server/app/static/assets/
 - 素材源优先级:同名 PNG(真实美术)→ 同名 SVG(程序生成兜底,仅管理端新建作物)
 - 预渲染:启动/创建时按 32/64/128/256 四档生成,请求零渲染开销
 - 版本接口基于文件内容哈希 + mtime 缓存,素材文件增删改自动触发版本变化,无需重启
+
+## 9. 通用资源接口(任意类型:图片/音频/配置)
+
+> 除图片外,音频/配置等任意类型资源统一走 `/v1/assets`。`/v1/art` 保留为 `images` 别名(向后兼容)。
+
+### 9.1 资源类型注册表 `server/data/assets.json`
+
+声明式定义每种资源类型(目录/扩展名/预渲染/URL 模板/命名空间)。**增改资源 = 放文件到对应 root + 改注册表,零代码。**
+
+```json
+{
+  "images": { "root": "app/static/assets", "ext": ["png","svg","jpg","webp"],
+              "prerender": [32,64,128,256],
+              "url_template": "/v1/assets/images/{key}/{name}.{ext}?w={w}",
+              "namespaces": { "crops": {"names":["seed","1","2","3"]}, "terms": {"names":["main"]} } },
+  "audio":  { "root": "app/static/assets/audio", "ext": ["ogg","mp3","wav"],
+              "prerender": [], "url_template": "/v1/assets/audio/{key}/{name}.{ext}" },
+  "config": { "root": "app/static/assets/config", "ext": ["json"],
+              "prerender": [], "url_template": "/v1/assets/config/{key}/{name}.{ext}" }
+}
+```
+
+### 9.2 通用资源接口
+
+```
+GET /v1/assets/{type}/{key}/{name}.{ext}[?w=<目标像素>]
+```
+
+| 参数 | 取值 | 说明 |
+|---|---|---|
+| `type` | `images`/`audio`/`config`… | 资源类型(注册表声明) |
+| `key` | 资源子目录,可多级 | 如 `crops/shuidao`、`bgm`、`terms` |
+| `name` | 素材名 | 如 `2`、`main`、`welcome` |
+| `ext` | 扩展名 | 须在注册表允许列表内 |
+| `w` | 8-1024,默认 128 | 仅图片类型;服务端取最小不小于 w 的预渲染档 |
+
+- 图片类型走预渲染选档(与 `/v1/art` 一致);非图片直接返回
+- 响应带 `Cache-Control: public, max-age=86400`
+- 不存在 → `404`(`28001 ASSET_NOT_FOUND`)
+
+示例:
+```
+GET /v1/assets/images/crops/shuidao/2.png?w=128   # 水稻生长期图(等价 /v1/art/crops/shuidao/2.png)
+GET /v1/assets/audio/bgm/main.ogg                 # 背景音乐
+GET /v1/assets/config/terms/welcome.json          # 配置 JSON
+```
+
+### 9.3 清单与版本
+
+```
+GET /v1/assets/manifest   # 按类型分组:ext/prerender/url_template/namespaces + 版本
+GET /v1/assets/version    # 全局版本 + 逐类型/逐资源哈希
+```
+
+### 9.4 资源更新推送(WS asset_update)
+
+管理端替换/新增资源文件后,调用:
+
+```
+POST /v1/assets/notify?asset_type=audio&key=bgm&name=main   # 👑 需 admin token
+```
+
+向全服广播 `asset_update` 事件:
+
+```json
+{ "type": "asset_update",
+  "payload": { "asset_type": "audio", "key": "bgm", "name": "main",
+                "url": "/v1/assets/audio/bgm/main.ogg", "version": "a1b2c3d4e5f6" } }
+```
+
+客户端收到后按 `url` 拉取;若 `version` 与本地缓存不同则**强制更新该资源**。
