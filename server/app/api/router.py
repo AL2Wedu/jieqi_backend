@@ -10,6 +10,7 @@ from app.api import (
     admin,
     ai,
     art,
+    assets,
     auth,
     calendar,
     debug,
@@ -42,6 +43,7 @@ api.include_router(social.router)
 api.include_router(achievements.router)
 api.include_router(ai.router)
 api.include_router(art.router)
+api.include_router(assets.router)
 api.include_router(pest.router)
 api.include_router(redeem.router)
 api.include_router(debug.router)

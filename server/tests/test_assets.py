@@ -25,3 +25,43 @@ def test_registry_type_lookup():
     img = get_type("images")
     assert img["root"].name == "assets"
     assert get_type("nope") is None
+
+
+# ---------- Task 2: 通用资源接口 ----------
+
+def test_assets_image_serves():
+    with TestClient(app) as c:
+        r = c.get("/v1/assets/images/crops/shuidao/2.png?w=128")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/png"
+        assert r.content[:8] == PNG_MAGIC
+
+
+def test_assets_audio_serves():
+    with TestClient(app) as c:
+        r = c.get("/v1/assets/audio/bgm/main.ogg")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "audio/ogg"
+        assert r.content[:4] == b"OggS"
+
+
+def test_assets_config_serves():
+    with TestClient(app) as c:
+        r = c.get("/v1/assets/config/terms/welcome.json")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "application/json"
+        assert b"welcome" in r.content
+
+
+def test_assets_unknown_type_404():
+    with TestClient(app) as c:
+        r = c.get("/v1/assets/video/x/y.mp4")
+        assert r.status_code == 404
+        assert r.json()["code"] == 28001
+
+
+def test_assets_missing_file_404():
+    with TestClient(app) as c:
+        assert c.get("/v1/assets/audio/bgm/nope.ogg").status_code == 404
+        assert c.get("/v1/assets/images/crops/nope/2.png?w=64").status_code == 404
+        assert c.get("/v1/assets/config/terms/nope.json").status_code == 404

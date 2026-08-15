@@ -1,6 +1,6 @@
 {
   "images": {
-    "root": "static/assets",
+    "root": "app/static/assets",
     "ext": ["png", "svg", "jpg", "webp"],
     "prerender": [32, 64, 128, 256],
     "url_template": "/v1/assets/images/{key}/{name}.{ext}?w={w}",
@@ -10,13 +10,13 @@
     }
   },
   "audio": {
-    "root": "static/assets/audio",
+    "root": "app/static/assets/audio",
     "ext": ["ogg", "mp3", "wav"],
     "prerender": [],
     "url_template": "/v1/assets/audio/{key}/{name}.{ext}"
   },
   "config": {
-    "root": "static/assets/config",
+    "root": "app/static/assets/config",
     "ext": ["json"],
     "prerender": [],
     "url_template": "/v1/assets/config/{key}/{name}.{ext}"
