@@ -67,6 +67,28 @@ def test_assets_missing_file_404():
         assert c.get("/v1/assets/config/terms/nope.json").status_code == 404
 
 
+def test_assets_animals_prerendered():
+    """animals 表情图走预渲染选档:?w= 取最小不小于 w 的档,缺档自动补渲染。"""
+    with TestClient(app) as c:
+        # 默认 w=128 → 128 档
+        r = c.get("/v1/assets/images/animals/happy/dog.png")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/png"
+        assert r.content[:8] == PNG_MAGIC
+        # w=64 → 64 档(内容与 128 档不同,证明按档返回)
+        r64 = c.get("/v1/assets/images/animals/happy/dog.png?w=64")
+        assert r64.status_code == 200
+        assert r64.content[:8] == PNG_MAGIC
+        assert r64.content != r.content
+        # w=100 → 取 128 档(最小不小于 100)
+        r100 = c.get("/v1/assets/images/animals/happy/dog.png?w=100")
+        assert r100.status_code == 200
+        assert r100.content == r.content
+        # 其他情绪/动物同样走预渲染
+        assert c.get("/v1/assets/images/animals/calm/cat.png?w=32").status_code == 200
+        assert c.get("/v1/assets/images/animals/confused/fox.png?w=256").status_code == 200
+
+
 # ---------- Task 3: /v1/art 保留为 images 别名(向后兼容) ----------
 
 def test_art_alias_still_works():

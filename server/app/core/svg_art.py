@@ -349,6 +349,31 @@ def ensure_terms_prerendered() -> None:
             img.resize((size, target_h), Image.LANCZOS).save(out, "PNG")
 
 
+ANIMALS_ROOT = Path(__file__).resolve().parent.parent / "static" / "assets" / "animals"
+
+
+def ensure_animals_prerendered() -> None:
+    """确保 animals 表情图的多分辨率 PNG 已预渲染(源 {name}.png → {name}_{size}.png)。
+
+    与 crops/terms 一致:按 PRERENDER_SIZES 等比缩放,幂等(缺档才补)。
+    """
+    for d in sorted(ANIMALS_ROOT.iterdir()):
+        if not d.is_dir():
+            continue
+        for src in sorted(d.glob("*.png")):
+            # 跳过已生成的档位文件(如 dog_32.png)
+            if src.stem.rsplit("_", 1)[-1].isdigit():
+                continue
+            for size in PRERENDER_SIZES:
+                out = d / f"{src.stem}_{size}.png"
+                if out.exists():
+                    continue
+                img = Image.open(src).convert("RGBA")
+                w, h = img.size
+                target_h = max(1, round(h * size / w))
+                img.resize((size, target_h), Image.LANCZOS).save(out, "PNG")
+
+
 # 6 种初始作物配色:slug -> (叶色, 果实色, 形态)
 CROP_SPECS = {
     "rice": ("#7cb342", "#f0c040", "grains"),

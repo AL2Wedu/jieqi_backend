@@ -1443,6 +1443,7 @@ GET /v1/art/manifest                                # 全量清单:作物×4 + �
 ```
 
 - `w` 取**最小不小于 w** 的预渲染档(32/64/128/256),超出取最大档;响应 `image/png` + 长缓存。
+- **animals 表情图**(`/v1/assets/images/animals/{emotion}/{animal}.png?w=`):与 crops/terms 同一预渲染体系,按 `w` 自动选档,缺档首次请求时自动补渲染(幂等)。
 - **取图闭环**:`GET /v1/farm/state` → 每格 `crop.art`(含 seed + stages 路径)→ 从路径取 slug → 按 `crop.stage` 取对应图。
 - **缓存刷新**:登录/节气切换时对比 `version`(全局变 → 全量刷新;`crops[slug]`/`terms[slug]` 变 → 只刷对应素材)。
 - 节气 slug 映射:1 lichun / 2 yushui / 3 jingzhe / 4 chunfen / 5 qingming / 6 guyu / 7 lixia / 8 xiaoman / 9 mangzhong / 10 xiazhi / 11 xiaoshu / 12 dashu / 13 liqiu / 14 chushu / 15 bailu / 16 qiufen / 17 hanlu / 18 shuangjiang / 19 lidong / 20 xiaoxue / 21 daxue / 22 dongzhi / 23 xiaohan / 24 dahan。

@@ -5,6 +5,8 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 
+PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
+
 
 def _reg(client) -> str:
     """注册新玩家,返回登录 token。"""
@@ -46,11 +48,16 @@ def test_dev_assets_lists_all_resources():
 
 
 def test_animals_asset_serves():
-    """新上传的表情素材:animals/{emotion}/{animal}.png 可经 /v1/assets 取。"""
+    """新上传的表情素材:animals/{emotion}/{animal}.png 可经 /v1/assets 取,走预渲染选档。"""
     with TestClient(app) as c:
+        # 默认 w=128 → 返回 128 档预渲染图
         r = c.get("/v1/assets/images/animals/happy/dog.png")
         assert r.status_code == 200
         assert r.headers["content-type"] == "image/png"
-        assert r.content[:8] == b"\x89PNG\r\n\x1a\n"
-        assert c.get("/v1/assets/images/animals/sad/cat.png").status_code == 200
+        assert r.content[:8] == PNG_MAGIC
+        # 显式 w=64 → 64 档
+        r64 = c.get("/v1/assets/images/animals/happy/dog.png?w=64")
+        assert r64.status_code == 200
+        assert r64.content[:8] == PNG_MAGIC
+        assert c.get("/v1/assets/images/animals/sad/cat.png?w=64").status_code == 200
         assert c.get("/v1/assets/images/animals/angry/dog.png").status_code == 404  # 情绪不存在

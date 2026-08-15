@@ -26,7 +26,7 @@ from fastapi.responses import FileResponse
 from app.core.assets_registry import get_type, load_registry, type_names
 from app.core.deps import get_current_admin
 from app.core.errors import AppError, ok
-from app.core.svg_art import PRERENDER_SIZES, ensure_prerendered, ensure_terms_prerendered
+from app.core.svg_art import PRERENDER_SIZES, ensure_animals_prerendered, ensure_prerendered, ensure_terms_prerendered
 from app.ws import manager
 
 router = APIRouter(prefix="/assets", tags=["assets"])
@@ -127,19 +127,15 @@ def _serve(type_name: str, key: str, name: str, ext: str, w: int) -> FileRespons
     if not src.exists():
         raise AppError("ASSET_NOT_FOUND", "资源不存在", http_status=404, code=28001)
 
-    # 图片类型:预渲染选档(复用 svg_art 的作物/节气预渲染)
+    # 图片类型:预渲染选档(复用 svg_art 的作物/节气/动物预渲染)
     if type_name == "images":
-        # animals(表情图)无预渲染,直接返回原图;crops/terms 走预渲染选档
-        if key.startswith("animals/"):
-            return FileResponse(
-                src, media_type="image/png",
-                headers={"Cache-Control": "public, max-age=86400"},
-            )
         chosen = _pick_size(w)
         if key.startswith("crops/"):
             ensure_prerendered(key.split("/", 1)[1])  # 幂等:缺档自动补渲染
         elif key.startswith("terms/"):
             ensure_terms_prerendered()
+        elif key.startswith("animals/"):
+            ensure_animals_prerendered()
         f = d / f"{name}_{chosen}.png"
         if not f.exists():
             raise AppError("ASSET_NOT_FOUND", "资源档缺失", http_status=404, code=28001)
