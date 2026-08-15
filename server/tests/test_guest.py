@@ -155,27 +155,31 @@ def test_build_messages_truncation():
 
 def test_validate_reply_clamps_and_defaults():
     from app.services.guest_service import _validate_reply
-    from app.models import AiGuestSession
+    from app.models import AiGuestSession, Crop
     import uuid as _uuid
 
     s = AiGuestSession(
         player_id=_uuid.uuid4(), crop_id=_uuid.uuid4(), guest_key="k",
         guest_name="王奶奶", base_price=10, target_min=6, target_max=9,
     )
+    crop = Crop(
+        id=_uuid.uuid4(), name="测试", category="谷物",
+        grow_seconds=100, yield_base=1, base_price=10, settings={},  # 无 max_value → 不额外封顶
+    )
     cfg = {"guest.price_floor": 0.5, "guest.price_ceil": 1.5}
     # offer 越界(天价 999)→ 截断到 15;mood 非法 → plain
     v = _validate_reply(
-        {"reply_text": "就这价", "guest_name": "王奶奶", "mood": "rage", "offer": 999, "deal": False}, s, cfg
+        {"reply_text": "就这价", "guest_name": "王奶奶", "mood": "rage", "offer": 999, "deal": False}, s, crop, cfg
     )
     assert v["offer"] == 15 and v["mood"] == "plain"
     # offer 过低 → 抬到 5
     v = _validate_reply(
-        {"reply_text": "行吧", "guest_name": "王奶奶", "mood": "happy", "offer": 1, "deal": True}, s, cfg
+        {"reply_text": "行吧", "guest_name": "王奶奶", "mood": "happy", "offer": 1, "deal": True}, s, crop, cfg
     )
     assert v["offer"] == 5 and v["deal"] is True
     # reply_text 为空 → 抛错(触发重试/兜底)
     with pytest.raises(ValueError):
-        _validate_reply({"reply_text": " ", "offer": 8, "deal": False}, s, cfg)
+        _validate_reply({"reply_text": " ", "offer": 8, "deal": False}, s, crop, cfg)
 
 
 def test_ask_parse_retry_and_fallback(client, monkeypatch):
@@ -335,3 +339,32 @@ def test_cooldown_blocks_start(client):
     finally:
         with SessionLocal() as db:
             save_guest_config(db, {"guest.cooldown_seconds": 30})
+
+
+# ---------- 修复回归:议价不超 max_value ----------
+
+def test_guest_offer_capped_by_max_value():
+    """客人议价成交价不突破作物单株卖价上限(max_value)。"""
+    import uuid
+    from app.models import Crop
+    from app.services.guest_service import _validate_reply
+    from app.models import AiGuestSession
+
+    # base_price 已是 max_value 封顶价(与 shop_service._crop_price 一致):白菜 max_value=30 → base=30
+    crop = Crop(
+        id=uuid.uuid4(), name="白菜", category="蔬菜",
+        grow_seconds=100, yield_base=1, base_price=100,
+        settings={"max_value": 30},
+    )
+    s = AiGuestSession(
+        id=uuid.uuid4(), player_id=uuid.uuid4(), crop_id=crop.id,
+        guest_key="k", guest_name="测试", base_price=30,
+        offer=0, target_min=15, target_max=45,
+    )
+    cfg = {"guest.price_floor": 0.5, "guest.price_ceil": 1.5}
+    # 客户/AI 报 offer=45(1.5×30),但 max_value=30 → 应收敛到 30
+    r = _validate_reply({"reply_text": "就这个价", "mood": "happy", "offer": 45, "deal": True}, s, crop, cfg)
+    assert r["offer"] == 30, r  # 不超单株上限
+    # 报价低于 floor 时仍被抬到 floor(15)
+    r2 = _validate_reply({"reply_text": "再低点", "mood": "sad", "offer": 1, "deal": False}, s, crop, cfg)
+    assert r2["offer"] == 15, r2

@@ -230,8 +230,12 @@ def _parse_reply(raw: str) -> dict:
     return json.loads(m.group(0))
 
 
-def _validate_reply(data: dict, s: AiGuestSession, cfg: dict) -> dict:
-    """服务端权威校验:字段类型 / mood 枚举 / offer 区间(越界截断)。"""
+def _validate_reply(data: dict, s: AiGuestSession, crop: Crop, cfg: dict) -> dict:
+    """服务端权威校验:字段类型 / mood 枚举 / offer 区间(越界截断)。
+
+    offer 上限额外夹到作物单株卖价上限(max_value):正常市场卖出被封顶,
+    客人议价也不应突破,防超市场价套现。
+    """
     reply_text = str(data.get("reply_text") or "").strip()
     if not reply_text:
         raise ValueError("reply_text empty")
@@ -241,7 +245,13 @@ def _validate_reply(data: dict, s: AiGuestSession, cfg: dict) -> dict:
     offer = int(data.get("offer"))
     floor = max(1, round(s.base_price * cfg["guest.price_floor"]))
     ceil = max(floor, round(s.base_price * cfg["guest.price_ceil"]))
-    offer = max(floor, min(ceil, offer))
+    # 不突破单株价值上限(与 shop_service._crop_price 的 max_value 封顶一致);
+    # base_price 已是 max_value 封顶价,故 floor ≤ ceil ≤ maxv 通常成立,这里仍兜底
+    maxv = int((crop.settings or {}).get("max_value", 0) or 0)
+    if maxv > 0:
+        ceil = min(ceil, maxv)
+    offer = max(floor, offer)
+    offer = min(offer, ceil)
     deal = bool(data.get("deal"))
     return {"reply_text": reply_text, "guest_name": s.guest_name, "mood": mood, "offer": offer, "deal": deal}
 
@@ -270,7 +280,7 @@ async def _ask(db: Session, player: Player, s: AiGuestSession, crop: Crop, user_
                 {"model": None, "messages": messages, "temperature": 0.8, "max_tokens": 300},
             )
             text = raw["choices"][0]["message"]["content"]
-            return _validate_reply(_parse_reply(text), s, cfg)
+            return _validate_reply(_parse_reply(text), s, crop, cfg)
         except AppError:
             # AI 未启用/未配置/上游异常 → 兜底话术(会话不坏,客人继续等)
             if attempt < retries:
@@ -313,9 +323,14 @@ async def chat_guest(db: Session, player: Player, session_id: str, message: str)
     s.turns += 1
     out = {**reply, "status": s.status}
     if reply["deal"]:
-        _finish(db, player, s, "done")
-        out["status"] = "done"
-        out["settle"] = _settle_session(db, player, s, reply["offer"])
+        # 原子终结:仅当仍 bargaining 才结算,防并发双重成交
+        if _try_finish(db, s, "done"):
+            _finish(db, player, s, "done")
+            out["status"] = "done"
+            out["settle"] = _settle_session(db, player, s, reply["offer"])
+        else:
+            out["status"] = "closed"
+            out["closed_reason"] = "concurrent_settle"
     elif s.turns >= guest_config(db)["guest.max_turns"]:
         _finish(db, player, s, "closed")
         out["status"] = "closed"
@@ -329,6 +344,9 @@ def accept_guest(db: Session, player: Player, session_id: str) -> dict:
     _check_bargaining(s)
     if s.offer < 1:
         raise AppError("GUEST_NO_OFFER", "客人还没报价", code=29007)
+    # 原子终结:仅当仍 bargaining 才结算,防并发 accept/chat 双重成交
+    if not _try_finish(db, s, "done"):
+        raise AppError("GUEST_CLOSED", "会话已结束,无法重复成交", code=29004)
     _finish(db, player, s, "done")
     settle = _settle_session(db, player, s, s.offer)
     db.commit()
@@ -361,6 +379,27 @@ def get_guest(db: Session, player: Player, session_id: str) -> dict:
 def _finish(db: Session, player: Player, s: AiGuestSession, status: str) -> None:
     s.status = status
     s.finished_at = datetime.now(timezone.utc)
+
+
+def _try_finish(db: Session, s: AiGuestSession, status: str) -> bool:
+    """原子终结会话:仅当仍为 bargaining 才置为指定终态。
+
+    用条件更新防止并发 accept/chat 双重结算(TOCTOU):两个并发请求都读到
+    status=bargaining 时,只有一个 UPDATE 命中(rowcount=1),另一个 rowcount=0
+    → 返回 False,调用方应拒绝结算。
+    """
+    now = datetime.now(timezone.utc)
+    rows = (
+        db.query(AiGuestSession)
+        .filter(AiGuestSession.id == s.id, AiGuestSession.status == "bargaining")
+        .update(
+            {
+                AiGuestSession.status: status,
+                AiGuestSession.finished_at: now,
+            }
+        )
+    )
+    return rows == 1
 
 
 def _settle_session(db: Session, player: Player, s: AiGuestSession, unit_price: int) -> dict:
