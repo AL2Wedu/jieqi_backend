@@ -1,0 +1,24 @@
+{
+  "images": {
+    "root": "static/assets",
+    "ext": ["png", "svg", "jpg", "webp"],
+    "prerender": [32, 64, 128, 256],
+    "url_template": "/v1/assets/images/{key}/{name}.{ext}?w={w}",
+    "namespaces": {
+      "crops": { "names": ["seed", "1", "2", "3"] },
+      "terms": { "names": ["main"] }
+    }
+  },
+  "audio": {
+    "root": "static/assets/audio",
+    "ext": ["ogg", "mp3", "wav"],
+    "prerender": [],
+    "url_template": "/v1/assets/audio/{key}/{name}.{ext}"
+  },
+  "config": {
+    "root": "static/assets/config",
+    "ext": ["json"],
+    "prerender": [],
+    "url_template": "/v1/assets/config/{key}/{name}.{ext}"
+  }
+}
