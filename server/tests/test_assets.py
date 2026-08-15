@@ -82,3 +82,31 @@ def test_art_alias_still_works():
         assert old.content == new.content
         # 旧节气别名仍可用
         assert c.get("/v1/art/terms/1.png?w=64").status_code == 200
+
+
+# ---------- Task 4: 泛化 manifest/version ----------
+
+def test_assets_manifest_lists_types():
+    with TestClient(app) as c:
+        r = c.get("/v1/assets/manifest").json()
+        assert r["code"] == 0
+        d = r["data"]
+        assert "images" in d["types"] and "audio" in d["types"] and "config" in d["types"]
+        assert d["types"]["images"]["prerender"] == [32, 64, 128, 256]
+        assert d["types"]["audio"]["url_template"] == "/v1/assets/audio/{key}/{name}.{ext}"
+        assert d["version"] and d["sizes"] == [32, 64, 128, 256]
+
+
+def test_assets_version_covers_types():
+    with TestClient(app) as c:
+        r = c.get("/v1/assets/version").json()
+        assert r["code"] == 0
+        d = r["data"]
+        assert "images" in d["types"] and "audio" in d["types"] and "config" in d["types"]
+        assert len(d["version"]) == 12
+        # 确定性:两次一致
+        r2 = c.get("/v1/assets/version").json()
+        assert r2["data"]["version"] == d["version"]
+        # 音频/配置资源有哈希
+        assert "bgm" in d["types"]["audio"]
+        assert "terms" in d["types"]["config"]
