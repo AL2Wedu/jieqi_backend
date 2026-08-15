@@ -110,3 +110,53 @@ def test_assets_version_covers_types():
         # 音频/配置资源有哈希
         assert "bgm" in d["types"]["audio"]
         assert "terms" in d["types"]["config"]
+
+
+# ---------- Task 5: 通用 WS 事件 asset_update ----------
+
+def _admin_token(client) -> str:
+    r = client.post("/v1/admin/login", json={"username": "admin", "password": "admin123"})
+    assert r.status_code == 200
+    return r.json()["data"]["token"]
+
+
+def test_assets_notify_requires_admin():
+    with TestClient(app) as c:
+        # 无 admin token → 401
+        r = c.post("/v1/assets/notify?asset_type=audio&key=bgm&name=main")
+        assert r.status_code == 401
+
+
+def test_assets_notify_broadcasts_asset_update():
+    with TestClient(app) as c:
+        tok = _admin_token(c)
+        # 注册一个玩家并连 WS
+        reg = c.post("/v1/auth/register", json={"name": "asset_ws", "password": "pass123"})
+        player_token = reg.json()["data"]["token"]
+        with c.websocket_connect(f"/v1/ws?token={player_token}") as ws:
+            first = ws.receive_json()  # 首帧 solar_term_change
+            assert first["type"] == "solar_term_change"
+            # 管理端触发资源更新广播
+            r = c.post(
+                "/v1/assets/notify?asset_type=audio&key=bgm&name=main",
+                headers={"Authorization": f"Bearer {tok}"},
+            )
+            assert r.status_code == 200
+            assert r.json()["data"]["broadcast"] is True
+            # 玩家 WS 收到 asset_update
+            msg = ws.receive_json()
+            assert msg["type"] == "asset_update"
+            assert msg["payload"]["asset_type"] == "audio"
+            assert msg["payload"]["key"] == "bgm"
+            assert "url" in msg["payload"] and "version" in msg["payload"]
+
+
+def test_assets_notify_unknown_type_404():
+    with TestClient(app) as c:
+        tok = _admin_token(c)
+        r = c.post(
+            "/v1/assets/notify?asset_type=video&key=x&name=y",
+            headers={"Authorization": f"Bearer {tok}"},
+        )
+        assert r.status_code == 404
+        assert r.json()["code"] == 28001

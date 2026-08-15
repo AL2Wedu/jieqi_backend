@@ -49,5 +49,12 @@ class ConnectionManager:
         except Exception:
             pass
 
+    def broadcast_sync(self, message: dict) -> None:
+        """线程安全全服广播:向所有在线玩家推送(资源更新等)。"""
+        if not self.players or self.loop is None:
+            return
+        for pid in list(self.players):
+            self.push_sync(pid, message)
+
 
 manager = ConnectionManager()

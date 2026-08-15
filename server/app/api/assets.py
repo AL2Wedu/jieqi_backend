@@ -20,12 +20,14 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import FileResponse
 
 from app.core.assets_registry import get_type, load_registry, type_names
+from app.core.deps import get_current_admin
 from app.core.errors import AppError, ok
 from app.core.svg_art import PRERENDER_SIZES, ensure_prerendered, ensure_terms_prerendered
+from app.ws import manager
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -194,3 +196,38 @@ def assets_manifest():
             "updated_at": v["updated_at"],
         }
     )
+
+
+@router.post("/notify")
+def assets_notify(
+    asset_type: str = Query(..., description="资源类型(images/audio/config…)"),
+    key: str = Query(..., description="资源 key(如 crops/shuidao、bgm)"),
+    name: str = Query(..., description="素材名(如 2、main、welcome)"),
+    admin: str = Depends(get_current_admin),
+):
+    """管理端:资源更新后向全服广播 asset_update(客户端按 url 拉取强制更新)。
+
+    触发场景:管理后台替换/新增资源文件后调用,客户端收到后按 url 拉取,
+    若 version 与本地缓存不同则强制更新该资源。
+    """
+    t = get_type(asset_type)
+    if t is None:
+        raise AppError("ASSET_NOT_FOUND", "资源类型不存在", http_status=404, code=28001)
+    url = t["url_template"].format(key=key, name=name, ext=t["ext"][0], w=128)
+    v = _versions()
+    per_type = v["types"].get(asset_type, {})
+    version = per_type.get(key.split("/")[-1], v["version"])
+    manager.broadcast_sync(
+        {
+            "type": "asset_update",
+            "payload": {
+                "asset_type": asset_type,
+                "key": key,
+                "name": name,
+                "url": url,
+                "version": version,
+            },
+            "ts": int(datetime.now(timezone.utc).timestamp()),
+        }
+    )
+    return ok({"broadcast": True, "url": url, "version": version})
