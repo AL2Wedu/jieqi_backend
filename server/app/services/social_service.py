@@ -195,18 +195,22 @@ def _get_player(db: Session, player_id: str) -> Player:
     return p
 
 
-def search_players(db: Session, player: Player, q: str, limit: int = 20) -> dict:
-    """按名字模糊搜索玩家(排除自己),返回公开资料。"""
+def search_players(db: Session, player: Player, q: str, limit: int = 20, exact: bool = False) -> dict:
+    """按名字查询玩家(排除自己),返回公开资料。
+
+    exact=True → 精确匹配用户名(重名全部返回,limit 内);False → 模糊包含匹配。
+    """
     q = (q or "").strip()
     if not q:
         raise AppError("INVALID_PARAMS", "搜索词不能为空", code=10001)
     # 转义 LIKE 通配符,避免 % 和 _ 被当通配符(搜"100%"应精确匹配字面百分号)
     escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     like = f"%{escaped}%"
+    cond = User.name == q if exact else User.name.like(like, escape="\\")
     rows = (
         db.query(Player, User)
         .join(User, User.id == Player.user_id)
-        .filter(User.name.like(like, escape="\\"), Player.id != player.id)
+        .filter(cond, Player.id != player.id)
         .order_by(Player.last_active_at.desc())
         .limit(max(1, min(int(limit), 50)))
         .all()
@@ -263,21 +267,16 @@ def get_friend_profile(db: Session, player: Player, friend_id: str) -> dict:
     return view
 
 
-def get_friend_farm(db: Session, player: Player, friend_id: str) -> dict:
-    """好友农场参观(只读快照,无任何副作用:不触发枯萎/杂草/虫害判定)。"""
+def _farm_snapshot(db: Session, target: Player) -> dict:
+    """农场参观快照(只读,无任何副作用:不触发枯萎/杂草/虫害判定)。
+
+    返回田格数据:每格 plot_id/idx/土壤肥力/锁定/杂草 + 作物状态
+    (stage/status/water_level/water_need/growth_progress/wilted),
+    供访客模式与"帮忙浇水"等互动功能读取。
+    """
     from app.models import Crop, CropInstance, Plot
-    from app.services import world_service
     from app.services.farm_service import crop_view
 
-    target = _get_player(db, friend_id)
-    a, b = _pair(player.id, target.id)
-    fs = (
-        db.query(Friendship)
-        .filter(Friendship.player_a == a, Friendship.player_b == b, Friendship.status == 1)
-        .first()
-    )
-    if not fs:
-        raise AppError("FRIEND_NOT_FOUND", "对方不是你的好友", code=27005)
     farm = db.query(Farm).filter(Farm.owner_id == target.id).first()
     if not farm:
         return {"farm": None, "plots": []}
@@ -318,6 +317,30 @@ def get_friend_farm(db: Session, player: Player, friend_id: str) -> dict:
             for p in plots
         ],
     }
+
+
+def get_friend_farm(db: Session, player: Player, friend_id: str) -> dict:
+    """好友农场参观(须已是好友;只读快照,无任何副作用)。"""
+    target = _get_player(db, friend_id)
+    a, b = _pair(player.id, target.id)
+    fs = (
+        db.query(Friendship)
+        .filter(Friendship.player_a == a, Friendship.player_b == b, Friendship.status == 1)
+        .first()
+    )
+    if not fs:
+        raise AppError("FRIEND_NOT_FOUND", "对方不是你的好友", code=27005)
+    return _farm_snapshot(db, target)
+
+
+def get_player_farm(db: Session, player: Player, target_id: str) -> dict:
+    """公开访客模式:任意玩家农场参观(只读快照,含田格数据)。
+
+    不要求好友关系 —— 找到对方(用户名查询/UUID 查询)即可参观其田格,
+    为"帮忙浇水"等互动功能提供前置数据;浇水/偷菜等副作用仍仅限好友。
+    """
+    target = _get_player(db, target_id)
+    return _farm_snapshot(db, target)
 
 
 # ---------- 预留互动契约(接口已定,功能待上线) ----------

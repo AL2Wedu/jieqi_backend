@@ -45,7 +45,7 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
-    name: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(32), index=True)  # 允许重名(班级同名场景),登录按名字+密码双匹配
     password_hash: Mapped[str] = mapped_column(String(255))
     status: Mapped[int] = mapped_column(SmallInteger, default=1)  # 1正常 0封禁
     register_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)

@@ -25,6 +25,7 @@ def init_db() -> None:
     _ensure_crop_columns()
     _ensure_weed_columns()
     _ensure_wilted_columns()
+    _ensure_users_name_nonunique()
 
 
 def _ensure_player_world_columns() -> None:
@@ -86,6 +87,20 @@ def _ensure_weed_columns() -> None:
                 )
     except Exception as e:
         logger.warning("杂草系统列迁移跳过: %s", e)
+
+
+def _ensure_users_name_nonunique() -> None:
+    """放开用户名重名(班级同名场景):删除 users.name 的唯一索引。
+
+    老库曾以 unique=True 建出唯一索引 ix_users_name;新库 create_all 已不再建。
+    SQLite 无 DROP CONSTRAINT,唯一性由唯一索引承担 → 删索引即放开。
+    """
+    with engine.begin() as conn:
+        idxs = conn.execute(text("PRAGMA index_list('users')")).fetchall()
+        for name, _, unique in [(r[1], r[2], r[3]) for r in idxs]:
+            if name == "ix_users_name" and unique:
+                conn.execute(text("DROP INDEX ix_users_name"))
+                break
 
 
 def _ensure_wilted_columns() -> None:

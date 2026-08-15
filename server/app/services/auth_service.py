@@ -29,8 +29,7 @@ def player_summary(player: Player, farm: Farm | None, user: User) -> dict:
 
 
 def register(db: Session, name: str, password: str, ip: str | None) -> dict:
-    if db.query(User).filter(User.name == name).first():
-        raise AppError("USER_EXISTS", "用户名已存在", code=20001)
+    # 允许重名(班级同名场景):登录按"名字+密码"双匹配,见 login
     user = User(
         name=name,
         password_hash=hash_password(password),
@@ -57,9 +56,18 @@ def register(db: Session, name: str, password: str, ip: str | None) -> dict:
 
 
 def login(db: Session, name: str, password: str, ip: str | None) -> dict:
-    user = db.query(User).filter(User.name == name).first()
-    if not user or not verify_password(password, user.password_hash):
+    # 名字可重名 → 密码双匹配:同名的账号里,密码匹配且唯一命中的那个才登录
+    candidates = db.query(User).filter(User.name == name).all()
+    matched = [u for u in candidates if verify_password(password, u.password_hash)]
+    if not matched:
         raise AppError("BAD_CREDENTIALS", "用户名或密码错误", code=20003)
+    if len(matched) > 1:
+        raise AppError(
+            "NAME_CONFLICT",
+            "该名字有多个账号且密码相同,请修改其中一个账号的密码",
+            code=20006,
+        )
+    user = matched[0]
     if user.status != 1:
         raise AppError("USER_BANNED", "账号已被封禁", http_status=403, code=20004)
     user.last_login_at = datetime.now(timezone.utc)

@@ -62,11 +62,12 @@ def remove(
 def search(
     q: str,
     limit: int = Query(20, ge=1, le=50),
+    exact: bool = Query(False, description="True=精确匹配用户名(重名全部返回),False=模糊包含"),
     player: Player = Depends(get_current_player),
     db: Session = Depends(get_db),
 ):
-    """按名字模糊搜索玩家(排除自己),公开资料列表(limit 1-50)。"""
-    return ok(social_service.search_players(db, player, q, limit))
+    """按名字查询玩家(排除自己):模糊搜索或精确匹配(重名返回多个)。"""
+    return ok(social_service.search_players(db, player, q, limit, exact))
 
 
 @router.get("/players/{player_id}")
@@ -77,6 +78,20 @@ def player_profile(
 ):
     """UUID 查询:任意玩家公开资料 + 与我方关系(none/pending_out/pending_in/friends)。"""
     return ok(social_service.get_player_profile(db, player, player_id))
+
+
+@router.get("/players/{player_id}/farm")
+def player_farm(
+    player_id: str,
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """公开访客模式:任意玩家农场参观(只读快照,含田格数据;无副作用)。
+
+    不要求好友关系 —— 通过用户名/UUID 找到对方即可参观其田格,
+    为"帮忙浇水"等互动功能提供前置数据(浇水/偷菜仍仅限好友)。
+    """
+    return ok(social_service.get_player_farm(db, player, player_id))
 
 
 @router.get("/friends/{player_id}")

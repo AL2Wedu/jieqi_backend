@@ -132,8 +132,9 @@
 | 33 | POST | `/v1/shop/guest/{session_id}/accept` | 🔐 | 接受客人当前报价 → 成交结算 |
 | 34 | POST | `/v1/shop/guest/{session_id}/cancel` | 🔐 | 赶客放弃,不成交 |
 | 35 | GET | `/v1/shop/guest/{session_id}` | 🔐 | 会话快照(含消息历史,断线重进用) |
-| 36 | GET | `/v1/social/search?q=` | 🔐 | 按名字模糊搜索玩家(排除自己,公开资料) |
+| 36 | GET | `/v1/social/search?q=&exact=` | 🔐 | 按名字查玩家(排除自己):模糊包含 / 精确匹配(重名全返回) |
 | 37 | GET | `/v1/social/players/{player_id}` | 🔐 | UUID 查询:任意玩家公开资料 + 关系状态 |
+| 38 | GET | `/v1/social/players/{player_id}/farm` | 🔐 | 公开访客模式:任意玩家农场参观(田格数据,只读无副作用) |
 | 38 | GET | `/v1/social/friends/{player_id}` | 🔐 | 好友资料卡(须已是好友,friends_since) |
 | 39 | GET | `/v1/social/friends/{player_id}/farm` | 🔐 | 好友农场参观(只读快照,无副作用) |
 | 40 | POST | `/v1/social/friends/{player_id}/water` | 🔐 | 互助浇水(预留接口,功能开发中) |
@@ -284,9 +285,9 @@
 }
 ```
 
-**错误:** `20001 USER_EXISTS`(用户名已存在)· `10001 INVALID_PARAMS`(参数不合法)
+**错误:** `10001 INVALID_PARAMS`(参数不合法)
 
-**注意事项:** 副作用 = 自动创建玩家(初始金币 **200**)、农场(**20 地块,4×5**)、`coin_transactions` 记 `register` 账、IP 落库并解析地理位置。
+**注意事项:** 副作用 = 自动创建玩家(初始金币 **200**)、农场(**20 地块,4×5**)、`coin_transactions` 记 `register` 账、IP 落库并解析地理位置。**允许重名**(班级同名场景):重名账号靠密码区分,见 5.2 登录双匹配。
 
 ### 5.2 POST /v1/auth/login — 登录(🔓)
 
@@ -294,7 +295,9 @@
 
 **响应(data):** 同注册(`token` + `player`)。登录取到 token 后应缓存,过期(7 天)重新登录。
 
-**错误:** `20002 USER_NOT_FOUND`(用户不存在)· `20003 BAD_CREDENTIALS`(密码错误)· `20004 USER_BANNED`(已封禁,HTTP 403)
+**错误:** `20002 USER_NOT_FOUND`(用户不存在)· `20003 BAD_CREDENTIALS`(密码错误)· `20004 USER_BANNED`(已封禁,HTTP 403)· `20006 NAME_CONFLICT`(同名多账号且密码相同,登录歧义)
+
+**注意事项:** 名字可重名 → **密码双匹配**:同名的所有账号中,密码匹配且唯一命中的那个才登录;同名同密码 → 20006(需改其中一个密码)。
 
 ### 5.3 GET /v1/player/me — 玩家档案(🔐)
 
@@ -552,7 +555,7 @@ bargaining --cancel--> cancelled
 **名字搜索(找人加好友的入口):**
 
 ```
-GET /v1/social/search?q=<关键词>&limit=<默认20,≤50>
+GET /v1/social/search?q=<关键词>&exact=<true|false>&limit=<默认20,≤50>
 → { "items": [ { "player_id", "name", "level", "unlocked_term_index", "farm_name", "last_active_at" } ] }
 ```
 
@@ -580,6 +583,14 @@ GET /v1/social/friends/{player_id}/farm
 
 - 只读快照:**不触发**枯萎/杂草/虫害等任何状态变更(与玩家自己 `GET /v1/farm/state` 的副作用区分)
 - 非好友 → `27005`
+
+**公开访客模式(任意玩家,只读无副作用,田格数据同上 —— 为"帮忙浇水"提供前置数据):**
+
+```
+GET /v1/social/players/{player_id}/farm
+```
+
+- 不要求好友关系:通过用户名/UUID 找到对方即可参观其田格;浇水/偷菜等副作用动作仍仅限好友
 
 **预留互动接口(契约已定,功能开发中):**
 
@@ -1300,10 +1311,10 @@ GET /v1/art/version                                 # 版本:version/crops/terms
 
 | code | error_code | HTTP | 触发条件 |
 |---|---|---|---|
-| 20001 | USER_EXISTS | 400 | 用户名已存在 |
 | 20002 | USER_NOT_FOUND | 400 | 用户/玩家不存在 |
 | 20003 | BAD_CREDENTIALS | 400 | 密码错误 |
 | 20004 | USER_BANNED | 403 | 账号已封禁(登录与存量 token 均拦截) |
+| 20006 | NAME_CONFLICT | 400 | 同名多账号且密码相同,登录歧义 |
 | 21000 | FARM_NOT_FOUND | 400 | 农场不存在 |
 | 21001 | PLOT_NOT_FOUND | 400 | 地块不存在/未解锁/不属于我 |
 | 21002 | PLOT_OCCUPIED | 400 | 地块已有作物 |

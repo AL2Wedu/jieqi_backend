@@ -412,3 +412,89 @@ def test_quest_double_claim_guard(client):
     assert r["code"] == 25003
     after = client.get("/v1/player/me", headers=h).json()["data"]["coins"]
     assert after == before + 20  # 只发一次奖励
+
+
+def test_social_public_visit_farm(client):
+    """公开访客模式:非好友也能参观田格数据(为帮忙浇水提供前置数据)。"""
+    hA = _reg(client, "visit_a")
+    hB = _reg(client, "visit_b")
+    pidB = _pid(client, hB)
+    # B 种一株水稻(不收获),让田格有作物数据
+    _advance_to_rice_window(client, hB)
+    shop = client.get("/v1/shop/items", headers=hB).json()["data"]["items"]
+    seed = next(i for i in shop if i["code"] == "seed_shuidao")
+    client.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=hB)
+    plot = client.get("/v1/farm/state", headers=hB).json()["data"]["plots"][0]["plot_id"]
+    client.post(f"/v1/farm/plots/{plot}/sow", json={"crop_id": seed["effect"]["crop_id"]}, headers=hB)
+
+    # A(非好友)公开访客模式参观 B 的农场 → 田格数据
+    r = client.get(f"/v1/social/players/{pidB}/farm", headers=hA).json()
+    assert r["code"] == 0, r
+    assert r["data"]["farm"]["name"] and r["data"]["farm"]["owner"]["name"] == "visit_b"
+    plots = r["data"]["plots"]
+    assert len(plots) == 20
+    cell = plots[0]
+    assert cell["idx"] == 1 and "plot_id" in cell
+    # 田格数据:作物状态含需水量/当前水分 —— 浇水功能的前置
+    assert cell["crop"]["name"] == "水稻"
+    assert "water_level" in cell["crop"] and "water_need" in cell["crop"]
+    assert cell["crop"]["status"] in ("growing", "mature")
+    # 好友专用端点仍然拒绝非好友
+    assert client.get(f"/v1/social/friends/{pidB}/farm", headers=hA).json()["code"] == 27005
+
+
+def test_social_search_exact_duplicates_and_login(client):
+    """精确用户名查询:重名返回多个 + 登录按「名字+密码」双匹配。
+
+    2026-08-15 放开重名:注册允许同名(班级同名场景),登录改为双匹配。
+    """
+    hC = _reg(client, "查重者")
+
+    def _reg_with_pw(client, name, password):
+        r = client.post(
+            "/v1/auth/register", json={"name": name, "password": password}
+        ).json()
+        assert r["code"] == 0, r
+        return r, _pid(client, {"Authorization": f"Bearer {r['data']['token']}"})
+
+    rA, pidA = _reg_with_pw(client, "同名甲", "pass111111")
+    rB, pidB = _reg_with_pw(client, "同名甲", "pass222222")  # 同名不同密码
+    _reg_with_pw(client, "同名乙", "pass111111")
+
+    # 登录双匹配:同名不同密码,各自登录自己的账号
+    r = client.post("/v1/auth/login", json={"name": "同名甲", "password": "pass111111"}).json()
+    assert r["code"] == 0 and r["data"]["player"]["player_id"] == pidA
+    r = client.post("/v1/auth/login", json={"name": "同名甲", "password": "pass222222"}).json()
+    assert r["code"] == 0 and r["data"]["player"]["player_id"] == pidB
+
+    # 精确:q=同名甲 → 2 个,全部同名
+    r = client.get("/v1/social/search?q=同名甲&exact=true", headers=hC).json()
+    assert r["code"] == 0, r
+    items = r["data"]["items"]
+    assert len(items) == 2, items
+    assert {i["name"] for i in items} == {"同名甲"}
+    assert {i["player_id"] for i in items} == {pidA, pidB}
+    # 精确:同名乙 → 1 个
+    r = client.get("/v1/social/search?q=同名乙&exact=true", headers=hC).json()
+    assert [i["name"] for i in r["data"]["items"]] == ["同名乙"]
+    # 精确模式下"同名"不命中(不再是模糊)
+    r = client.get("/v1/social/search?q=同名&exact=true", headers=hC).json()
+    assert r["data"]["items"] == []
+    # 模糊模式(默认):包含匹配 → 3 个
+    r = client.get("/v1/social/search?q=同名", headers=hC).json()
+    assert len(r["data"]["items"]) == 3
+    # 精确搜索也排除自己:同名甲本人搜"同名甲" → 只剩 1 个
+    hA = {"Authorization": f"Bearer {rA['data']['token']}"}
+    r = client.get("/v1/social/search?q=同名甲&exact=true", headers=hA).json()
+    assert len(r["data"]["items"]) == 1
+
+    # 第三个同名甲用与 A 相同的密码 → 登录时密码撞车 → 20006 NAME_CONFLICT
+    r = client.post(
+        "/v1/auth/register", json={"name": "同名甲", "password": "pass111111"}
+    ).json()
+    assert r["code"] == 0
+    r = client.post("/v1/auth/login", json={"name": "同名甲", "password": "pass111111"}).json()
+    assert r["code"] == 20006, r
+    # B 的密码仍可正常登录(双匹配只影响撞车的那组)
+    r = client.post("/v1/auth/login", json={"name": "同名甲", "password": "pass222222"}).json()
+    assert r["code"] == 0 and r["data"]["player"]["player_id"] == pidB

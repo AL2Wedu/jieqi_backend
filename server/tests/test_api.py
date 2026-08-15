@@ -28,13 +28,15 @@ def test_full_flow(client):
     token = body["data"]["token"]
     h = _auth(token)
 
-    # 重复注册应失败
-    r = client.post("/v1/auth/register", json={"name": "testuser1", "password": "pass123"})
-    assert r.json()["code"] != 0
-
     # 登录
     r = client.post("/v1/auth/login", json={"name": "testuser1", "password": "pass123"})
     assert r.json()["code"] == 0
+
+    # 重名允许(班级同名场景):同名同密码再次注册成功,登录时密码撞车 → 20006
+    r = client.post("/v1/auth/register", json={"name": "testuser1", "password": "pass123"})
+    assert r.json()["code"] == 0
+    r = client.post("/v1/auth/login", json={"name": "testuser1", "password": "pass123"})
+    assert r.json()["code"] == 20006
 
     # 日历(每用户世界,需登录)
     r = client.get("/v1/calendar/current", headers=h).json()
