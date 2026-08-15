@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_player, get_db
@@ -61,11 +61,11 @@ def remove(
 @router.get("/search")
 def search(
     q: str,
-    limit: int = 20,
+    limit: int = Query(20, ge=1, le=50),
     player: Player = Depends(get_current_player),
     db: Session = Depends(get_db),
 ):
-    """按名字模糊搜索玩家(排除自己),公开资料列表。"""
+    """按名字模糊搜索玩家(排除自己),公开资料列表(limit 1-50)。"""
     return ok(social_service.search_players(db, player, q, limit))
 
 

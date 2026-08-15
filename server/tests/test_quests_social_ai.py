@@ -357,3 +357,26 @@ def test_daily_quest_resets_next_day(client):
     before2 = client.get("/v1/player/me", headers=h).json()["data"]["coins"]
     r = client.post(f"/v1/quests/{qid}/claim", headers=h).json()
     assert r["code"] == 0 and r["data"]["coins_balance"] == before2 + 20  # 第二天可再领
+
+
+def test_social_search_limit_and_like_escape(client):
+    """搜索 limit 有下限/上限(负值不绕过);LIKE 通配符被转义。"""
+    h = _reg(client, "slim_user")
+    # 负 limit → 422(API 层 ge=1 校验),不再绕过 50 上限
+    r = client.get("/v1/social/search?q=s&limit=-1", headers=h)
+    assert r.status_code == 422, r.status_code
+    # 超大 limit → 422(API 层 le=50 校验)
+    r = client.get("/v1/social/search?q=s&limit=999", headers=h)
+    assert r.status_code == 422, r.status_code
+    # 合法 limit → 200,结果数受上限约束
+    r = client.get("/v1/social/search?q=s&limit=50", headers=h).json()
+    assert r["code"] == 0 and len(r["data"]["items"]) <= 50
+    # LIKE 转义:名字含 % 的玩家,用 % 精确搜不会匹配全部
+    r = client.post("/v1/auth/register", json={"name": "like_100%", "password": "pass123456"}).json()
+    assert r["code"] == 0
+    r = client.get("/v1/social/search?q=100%25", headers=h).json()
+    assert r["code"] == 0
+    names = {i["name"] for i in r["data"]["items"]}
+    assert "like_100%" in names
+    # 通配符 % 不再匹配所有名字(仅精确含字面 % 的)
+    assert not any(n not in ("like_100%",) for n in names) or len(names) <= 2

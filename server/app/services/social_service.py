@@ -79,7 +79,7 @@ def list_friends(db: Session, player: Player) -> dict:
 
 
 def list_requests(db: Session, player: Player) -> dict:
-    """发给我的待处理申请(requester 不是我)。"""
+    """发给我的待处理申请(requester 不是我),按申请时间倒序。"""
     rows = (
         db.query(Friendship)
         .filter(
@@ -90,17 +90,21 @@ def list_requests(db: Session, player: Player) -> dict:
         .order_by(Friendship.created_at.desc())
         .all()
     )
-    requester_ids = {r.requester for r in rows}
-    return {
-        "items": [
+    # 有序去重:同一 requester 只取最新一条,保持 created_at 倒序(set 会破坏顺序)
+    seen: set[uuid.UUID] = set()
+    items = []
+    for r in rows:
+        if r.requester in seen:
+            continue
+        seen.add(r.requester)
+        items.append(
             {
-                "player_id": str(rid),
-                "name": _player_name(db, rid),
-                "created_at": next(r.created_at.isoformat() for r in rows if r.requester == rid),
+                "player_id": str(r.requester),
+                "name": _player_name(db, r.requester),
+                "created_at": r.created_at.isoformat(),
             }
-            for rid in requester_ids
-        ]
-    }
+        )
+    return {"items": items}
 
 
 def respond(db: Session, player: Player, requester_id: str, accept: bool) -> dict:
@@ -196,16 +200,42 @@ def search_players(db: Session, player: Player, q: str, limit: int = 20) -> dict
     q = (q or "").strip()
     if not q:
         raise AppError("INVALID_PARAMS", "搜索词不能为空", code=10001)
-    like = f"%{q}%"
+    # 转义 LIKE 通配符,避免 % 和 _ 被当通配符(搜"100%"应精确匹配字面百分号)
+    escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    like = f"%{escaped}%"
     rows = (
         db.query(Player, User)
         .join(User, User.id == Player.user_id)
-        .filter(User.name.like(like), Player.id != player.id)
+        .filter(User.name.like(like, escape="\\"), Player.id != player.id)
         .order_by(Player.last_active_at.desc())
-        .limit(min(limit, 50))
+        .limit(max(1, min(int(limit), 50)))
         .all()
     )
-    return {"items": [_profile_view(db, p) for p, _ in rows]}
+    # 一次查出全部农场,避免逐条 N+1(用户已 join,不必再查 User)
+    farm_map = {
+        f.owner_id: f
+        for f in db.query(Farm)
+        .filter(Farm.owner_id.in_([p.id for p, _ in rows]))
+        .all()
+    }
+    items = []
+    for p, u in rows:
+        f = farm_map.get(p.id)
+        items.append(
+            {
+                "player_id": str(p.id),
+                "name": u.name,
+                "level": p.level,
+                "unlocked_term_index": p.unlocked_term_index,
+                "farm_name": f.name if f else None,
+                "last_active_at": (
+                    p.last_active_at.isoformat(timespec="seconds")
+                    if p.last_active_at
+                    else None
+                ),
+            }
+        )
+    return {"items": items}
 
 
 def get_player_profile(db: Session, player: Player, target_id: str) -> dict:
@@ -277,7 +307,11 @@ def get_friend_farm(db: Session, player: Player, friend_id: str) -> dict:
                 "soil_quality": p.soil_quality,
                 "locked": p.locked,
                 "weeded": bool(p.weeded),
-                "crop": crop_view(active[p.id], crops.get(active[p.id].crop_id))
+                "crop": crop_view(
+                    active[p.id],
+                    crops.get(active[p.id].crop_id),
+                    weeded=bool(p.weeded),  # 与主人视图一致:杂草地块按减速算进度
+                )
                 if p.id in active
                 else None,
             }
