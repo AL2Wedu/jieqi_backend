@@ -11,8 +11,12 @@
 
 进度一律由服务器从真实数据计算(不依赖客户端上报),新增条件类型只需扩展本文件。
 """
+import logging
+
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger("jieqi")
 
 from app.models import (
     AiUsage,
@@ -146,6 +150,8 @@ def grant_reward(db: Session, player: Player, reward: dict | None, reason: str) 
         qty = int(it.get("quantity", 1))
         item = db.query(Item).filter(Item.code == code).first()
         if not item:
+            # 配置了不存在的道具码:告警而非静默跳过,便于运营察觉配置错误
+            logger.warning("grant_reward 跳过未知道具码 code=%s reason=%s", code, reason)
             continue
         ui = (
             db.query(UserItem)
