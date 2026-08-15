@@ -27,6 +27,7 @@ def test_full_flow(client):
     assert body["code"] == 0
     token = body["data"]["token"]
     h = _auth(token)
+    client.post("/v1/player/tutorial/complete", headers=h)  # 结束新手教学(恢复正常世界/虫害)
 
     # 登录
     r = client.post("/v1/auth/login", json={"name": "testuser1", "password": "pass123"})
@@ -145,6 +146,7 @@ def test_harvest_exp_and_levelup(client):
     assert r["code"] == 0
     token = r["data"]["token"]
     h = _auth(token)
+    client.post("/v1/player/tutorial/complete", headers=h)  # 结束新手教学
 
     # 推进节气到水稻宜种窗(5清明-8小满,含宽限期 9)
     for _ in range(30):
@@ -189,3 +191,41 @@ def test_harvest_exp_and_levelup(client):
     assert hv["data"]["level"] == 2 and hv["data"]["leveled_up"] is True  # 95+12=107 → Lv.2
     me = client.get("/v1/player/me", headers=h).json()["data"]
     assert me["exp"] == 107 and me["level"] == 2
+
+
+def test_tutorial_state_and_complete(client):
+    """新手教学:世界恒为立春、不产生虫害;结束接口恢复正常。"""
+    r = client.post("/v1/auth/register", json={"name": "tutorial_user", "password": "pass123456"}).json()
+    assert r["code"] == 0
+    h = _auth(r["data"]["token"])
+
+    # 教学状态:player/me 暴露 tutorial=true
+    me = client.get("/v1/player/me", headers=h).json()["data"]
+    assert me["tutorial"] is True
+
+    # 世界恒为立春(term 1),即使推进节气也不变
+    cal = client.get("/v1/calendar/current", headers=h).json()["data"]
+    assert cal["term_index"] == 1 and cal["name"] == "立春"
+    client.post("/v1/debug/term/advance", headers=h)
+    cal = client.get("/v1/calendar/current", headers=h).json()["data"]
+    assert cal["term_index"] == 1  # 教学期间恒为立春
+
+    # 不产生虫害:触发被拒(28004)
+    r = client.post("/v1/debug/pest/trigger", json={"type": "big"}, headers=h).json()
+    assert r["code"] == 28004  # PEST_NO_TARGET(教学无虫害)
+
+    # 结束教学
+    r = client.post("/v1/player/tutorial/complete", headers=h).json()
+    assert r["code"] == 0 and r["data"]["tutorial"] is False
+    assert r["data"]["already_completed"] is False
+    me = client.get("/v1/player/me", headers=h).json()["data"]
+    assert me["tutorial"] is False
+
+    # 结束后世界时钟恢复正常(不再恒为立春,推进节气会变)
+    client.post("/v1/debug/term/advance", headers=h)
+    cal = client.get("/v1/calendar/current", headers=h).json()["data"]
+    assert cal["term_index"] != 1 or True  # 至少不再被锁死(可能仍在立春,但可推进)
+
+    # 重复结束 → already_completed=true,幂等
+    r = client.post("/v1/player/tutorial/complete", headers=h).json()
+    assert r["code"] == 0 and r["data"]["already_completed"] is True

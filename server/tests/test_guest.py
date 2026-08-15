@@ -17,8 +17,8 @@ def client():
 def _reg(client, name):
     r = client.post("/v1/auth/register", json={"name": name, "password": "pass123456"}).json()
     assert r["code"] == 0
+    client.post("/v1/player/tutorial/complete", headers={"Authorization": f"Bearer {r['data']['token']}"})
     return {"Authorization": f"Bearer {r['data']['token']}"}
-
 
 def _harvest_rice(client, h):
     """种一株水稻并收获,让收成仓有货(推进到宜种窗 5-8,debug 催熟)。"""

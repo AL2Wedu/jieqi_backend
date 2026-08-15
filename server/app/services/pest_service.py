@@ -144,7 +144,12 @@ def _current_season(db: Session, player: Player) -> str:
 
 
 def _pest_active(db: Session, player: Player) -> bool:
-    """玩家当前节气是否在虫害活跃窗口(默认惊蛰~霜降;窗口外=越冬期无虫)。"""
+    """玩家当前节气是否在虫害活跃窗口(默认惊蛰~霜降;窗口外=越冬期无虫)。
+
+    新手教学期间不产生虫害(教学环境无虫害干扰)。
+    """
+    if getattr(player, "tutorial", False):
+        return False
     cfg = pest_config(db)
     rng = cfg.get("pest.active_terms") or {}
     try:

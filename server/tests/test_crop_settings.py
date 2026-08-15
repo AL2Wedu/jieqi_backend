@@ -18,12 +18,10 @@ def client():
 
 
 def _reg(client, name):
-    r = client.post(
-        "/v1/auth/register", json={"name": name, "password": "pass123456"}
-    ).json()
+    r = client.post("/v1/auth/register", json={"name": name, "password": "pass123456"}).json()
     assert r["code"] == 0
+    client.post("/v1/player/tutorial/complete", headers={"Authorization": f"Bearer {r['data']['token']}"})
     return {"Authorization": f"Bearer {r['data']['token']}"}
-
 
 def _admin(client):
     r = client.post(
@@ -31,7 +29,6 @@ def _admin(client):
     ).json()
     assert r["code"] == 0
     return {"Authorization": f"Bearer {r['data']['token']}"}
-
 
 def _advance_term(client, h, target_range):
     """推进节气直到落在 target_range(闭区间);玩家世界随 authed 请求同步。"""

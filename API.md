@@ -85,7 +85,7 @@
 
 ---
 
-## 3. 完整端点索引(89 REST/WS + 3 页面)
+## 3. 完整端点索引(90 REST/WS + 3 页面)
 
 ### 3.1 玩家端基础(13)
 
@@ -93,11 +93,12 @@
 |---|---|---|---|---|
 | 1 | POST | `/v1/auth/register` | 🔓 | 注册(名字+密码)→ 返回 token + 玩家档案 |
 | 2 | POST | `/v1/auth/login` | 🔓 | 登录 |
-| 3 | GET | `/v1/player/me` | 🔐 | 玩家档案(金币/等级/经验/解锁节气) |
-| 4 | GET | `/v1/player/inventory` | 🔐 | 背包列表(含数量 0 的道具行) |
-| 5 | POST | `/v1/player/inventory/{item_id}/use` | 🔐 | 使用道具(肥料/水壶等,需目标地块) |
-| 6 | GET | `/v1/calendar/current` | 🔐 | 我的当前节气(每用户世界) |
-| 7 | GET | `/v1/farm/state` | 🔐 | 农场全量状态(20 地块 + 每格作物 + 杂草标记) |
+| 3 | GET | `/v1/player/me` | 🔐 | 玩家档案(金币/等级/经验/解锁节气/教学状态) |
+| 4 | POST | `/v1/player/tutorial/complete` | 🔐 | 结束新手教学(恢复正常世界/虫害) |
+| 5 | GET | `/v1/player/inventory` | 🔐 | 背包列表(含数量 0 的道具行) |
+| 6 | POST | `/v1/player/inventory/{item_id}/use` | 🔐 | 使用道具(肥料/水壶等,需目标地块) |
+| 7 | GET | `/v1/calendar/current` | 🔐 | 我的当前节气(每用户世界) |
+| 8 | GET | `/v1/farm/state` | 🔐 | 农场全量状态(20 地块 + 每格作物 + 杂草标记) |
 | 8 | POST | `/v1/farm/plots/{plot_id}/sow` | 🔐 | 播种(解锁→宜种窗→种子校验) |
 | 9 | POST | `/v1/farm/plots/{plot_id}/water` | 🔐 | 浇水(水分补满,重新计时衰减) |
 | 10 | POST | `/v1/farm/plots/{plot_id}/harvest` | 🔐 | 收获(入收成仓,不直接给金币) |
@@ -325,7 +326,7 @@
 
 **请求:** 无参数。
 
-**响应(data):** 同注册的 `player` 对象(不含 token)。
+**响应(data):** 同注册的 `player` 对象(不含 token),含 `tutorial`(新手教学状态)。
 
 **错误:** `10002 UNAUTHORIZED`(未登录/玩家不存在)· `10003 UNAUTHORIZED`(token 过期)· `20004 USER_BANNED`(被封禁,HTTP 403)
 
@@ -368,6 +369,16 @@
 **错误:** `20009 REDEEM_RATE_LIMITED`(限速内)· `20010 REDEEM_INVALID`(无效/停用/过期,统一)· `20011 REDEEM_CLAIMED`(已兑换过)· `20012 REDEEM_EXHAUSTED`(已用完)
 
 **注意事项:** 限速 `redeem.cooldown_seconds`(默认 60s,成功失败都算);奖励走账本(金币/经验/道具)。
+
+### 5.3b POST /v1/player/tutorial/complete — 结束新手教学(🔐)
+
+**请求:** 无请求体。
+
+**响应(data):** `{ "tutorial": false, "already_completed": bool }`(`already_completed=true`=本已结束,幂等)。
+
+**错误:** `10002/10003 UNAUTHORIZED` · `20004 USER_BANNED`
+
+**注意事项:** 新手教学期间玩家世界**恒为立春**(节气不推进)、**不产生虫害**;调用本接口后恢复正常世界时钟与虫害调度(世界从当前全局纪元位置开始,虫害排程清空后按季节重排)。
 
 ### 5.4 GET /v1/player/inventory — 背包(🔐)
 

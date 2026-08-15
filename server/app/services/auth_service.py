@@ -46,6 +46,7 @@ def player_summary(player: Player, farm: Farm | None, user: User) -> dict:
         "plot_count": farm.plot_count if farm else 0,
         "register_location": user.register_location,
         "last_login_location": user.last_login_location,
+        "tutorial": bool(getattr(player, "tutorial", True)),  # 新手教学状态
     }
 
 

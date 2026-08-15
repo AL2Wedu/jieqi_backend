@@ -14,16 +14,15 @@ def client():
 
 
 def _reg(client, name):
-    r = client.post("/v1/auth/register", json={"name": name, "password": "pass123456"})
-    assert r.json()["code"] == 0, r.json()
-    return {"Authorization": f"Bearer {r.json()['data']['token']}"}
-
+    r = client.post("/v1/auth/register", json={"name": name, "password": "pass123456"}).json()
+    assert r["code"] == 0
+    client.post("/v1/player/tutorial/complete", headers={"Authorization": f"Bearer {r['data']['token']}"})
+    return {"Authorization": f"Bearer {r['data']['token']}"}
 
 def _admin(client):
     r = client.post("/v1/admin/login", json={"username": "admin", "password": "admin123"})
     assert r.json()["code"] == 0
     return {"Authorization": f"Bearer {r.json()['data']['token']}"}
-
 
 def _uid(client, ah, name):
     users = client.get("/v1/admin/users", headers=ah).json()["data"]["items"]

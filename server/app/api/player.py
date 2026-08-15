@@ -35,6 +35,15 @@ def rename(
     return ok(player_service.rename_player(db, player, req.new_name))
 
 
+@router.post("/tutorial/complete")
+def complete_tutorial(
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """结束新手教学:恢复正常世界时钟与虫害调度(教学期间世界恒为立春、无虫害)。"""
+    return ok(player_service.complete_tutorial(db, player))
+
+
 @router.get("/inventory")
 def inventory(player: Player = Depends(get_current_player), db: Session = Depends(get_db)):
     return ok(inventory_service.list_inventory(db, player))

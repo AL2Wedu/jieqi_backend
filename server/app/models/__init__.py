@@ -82,6 +82,8 @@ class Player(Base):
     next_pest_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # 杂草调度:下一节气内杂草生长的世界秒时刻(每用户隔离,到点触发)
     weed_scheduled_accum: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # 新手教学:教学期间世界恒为立春、不产生虫害;完成后置 False 恢复正常
+    tutorial: Mapped[bool] = mapped_column(Boolean, default=True)
 
 
 class CoinTransaction(Base):

@@ -104,7 +104,12 @@ def _rate(db: Session, factor: float) -> float:
 
 
 def current_term(db: Session, player: Player) -> tuple:
-    """玩家当前节气三元组 (term, cycle, remaining_sec)。"""
+    """玩家当前节气三元组 (term, cycle, remaining_sec)。
+
+    新手教学期间世界恒为立春(term 1),不随世界时钟推进。
+    """
+    if getattr(player, "tutorial", False):
+        return term_at(db, 0.0)
     return term_at(db, float(player.world_accum or 0.0))
 
 

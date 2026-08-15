@@ -46,6 +46,7 @@ def test_users_and_ban(client):
         "/v1/auth/register", json={"name": "admin_test_user", "password": "pass123"}
     ).json()
     player_token = reg["data"]["token"]
+    client.post("/v1/player/tutorial/complete", headers={"Authorization": f"Bearer {player_token}"})
     r = client.get("/v1/admin/users", headers=h).json()
     assert r["code"] == 0
     target = next(u for u in r["data"]["items"] if u["name"] == "admin_test_user")
@@ -92,6 +93,7 @@ def test_crops_crud(client):
         "/v1/auth/register", json={"name": "crop_shop_check", "password": "pass123456"}
     ).json()
     ph = {"Authorization": f"Bearer {pr['data']['token']}"}
+    client.post("/v1/player/tutorial/complete", headers=ph)
     r = client.get("/v1/admin/crops", headers=h).json()
     assert r["code"] == 0 and len(r["data"]["items"]) >= 6
 
@@ -179,6 +181,7 @@ def test_plantings_view(client):
     # 准备一个玩家 + 一株作物
     reg = client.post("/v1/auth/register", json={"name": "plant_owner", "password": "pass123"}).json()
     token = reg["data"]["token"]
+    client.post("/v1/player/tutorial/complete", headers={"Authorization": f"Bearer {token}"})
     ph = {"Authorization": f"Bearer {token}"}
     # 推进到水稻宜种窗
     for _ in range(40):
@@ -270,6 +273,7 @@ def test_admin_assets_edit_and_push(client, monkeypatch):
     ).json()
     assert r["code"] == 0
     ph = {"Authorization": f"Bearer {r['data']['token']}"}
+    client.post("/v1/player/tutorial/complete", headers=ph)
     admin = client.post(
         "/v1/admin/login", json={"username": "admin", "password": "admin123"}
     ).json()

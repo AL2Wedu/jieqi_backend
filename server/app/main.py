@@ -40,6 +40,8 @@ def _ensure_player_world_columns() -> None:
                 conn.execute(text("ALTER TABLE players ADD COLUMN world_last_sync DATETIME"))
             if "next_pest_at" not in cols:
                 conn.execute(text("ALTER TABLE players ADD COLUMN next_pest_at DATETIME"))
+            if "tutorial" not in cols:
+                conn.execute(text("ALTER TABLE players ADD COLUMN tutorial BOOLEAN DEFAULT 1"))
     except Exception as e:  # noqa: BLE001 迁移失败不阻塞启动(测试库重建不受影响)
         logger.warning("玩家世界/虫害列迁移跳过: %s", e)
     try:

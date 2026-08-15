@@ -7,14 +7,13 @@ from app.main import app
 def _reg(c, name):
     r = c.post("/v1/auth/register", json={"name": name, "password": "pass123456"}).json()
     assert r["code"] == 0
+    c.post("/v1/player/tutorial/complete", headers={"Authorization": f"Bearer {r['data']['token']}"})
     return {"Authorization": f"Bearer {r['data']['token']}"}
-
 
 def _admin(c):
     r = c.post("/v1/admin/login", json={"username": "admin", "password": "admin123"}).json()
     assert r["code"] == 0
     return {"Authorization": f"Bearer {r['data']['token']}"}
-
 
 def test_shop_isolation():
     """每个用户商店相互隔离:一人购买不影响他人库存。"""

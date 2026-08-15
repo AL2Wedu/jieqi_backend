@@ -17,12 +17,10 @@ def client():
 
 
 def _reg(client, name):
-    r = client.post(
-        "/v1/auth/register", json={"name": name, "password": "pass123456"}
-    ).json()
+    r = client.post("/v1/auth/register", json={"name": name, "password": "pass123456"}).json()
     assert r["code"] == 0
+    client.post("/v1/player/tutorial/complete", headers={"Authorization": f"Bearer {r['data']['token']}"})
     return {"Authorization": f"Bearer {r['data']['token']}"}
-
 
 def test_weed_trigger_and_state(client):
     """触发杂草生长 → 随机地块 weeded 标记 → 清除。"""

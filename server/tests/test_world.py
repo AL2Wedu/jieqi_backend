@@ -17,10 +17,10 @@ def client():
 
 
 def _reg(client, name):
-    r = client.post("/v1/auth/register", json={"name": name, "password": "pass123456"})
-    assert r.json()["code"] == 0, r.json()
-    return {"Authorization": f"Bearer {r.json()['data']['token']}"}
-
+    r = client.post("/v1/auth/register", json={"name": name, "password": "pass123456"}).json()
+    assert r["code"] == 0
+    client.post("/v1/player/tutorial/complete", headers={"Authorization": f"Bearer {r['data']['token']}"})
+    return {"Authorization": f"Bearer {r['data']['token']}"}
 
 def _player(db, name):
     from app.models import Player, User
