@@ -14,6 +14,7 @@ from app.api import (
     auth,
     calendar,
     debug,
+    dev,
     farm,
     pest,
     player,
@@ -47,6 +48,7 @@ api.include_router(assets.router)
 api.include_router(pest.router)
 api.include_router(redeem.router)
 api.include_router(debug.router)
+api.include_router(dev.router)
 api.include_router(admin.router)
 
 

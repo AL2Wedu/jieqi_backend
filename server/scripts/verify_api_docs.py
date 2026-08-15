@@ -33,6 +33,7 @@ PREFIX = {
     "assets.py": "/assets",
     "pest.py": "",  # pest.py 的 router 无前缀,路径自带(/farm/pest/... 与 /pest/state)
     "debug.py": "/debug",
+    "dev.py": "/dev",
     "admin.py": "/admin",
 }
 WS_PREFIX = {"admin.py": "/admin"}  # admin.py 的 /logs WS

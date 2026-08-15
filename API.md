@@ -179,6 +179,14 @@
 | 39 | POST | `/v1/debug/weed/trigger` | 强制触发一次杂草生长 |
 | 40 | POST | `/v1/debug/weed/clear` | 清除我的全部杂草 |
 
+### 3.4.1 开发辅助接口(1,🛠 需 `DEV_TOKEN`)
+
+| # | 方法 | 路径 | 说明 |
+|---|---|---|---|
+| 41 | GET | `/v1/dev/assets` | 完整资源清单(遍历 assets 目录树:path/url/size,开发联调用) |
+
+> **认证**:`Authorization: Bearer <DEV_TOKEN>`(配置在 `server/.env` 的 `DEV_TOKEN`;为空则接口整体禁用,返回 403 `DEV_DISABLED`)。
+
 ### 3.5 管理后台(41,👑 全部需 admin token)
 
 | # | 方法 | 路径 | 说明 |
@@ -912,6 +920,31 @@ GET /v1/social/players/{player_id}/farm
 
 **响应(data):** `{ "cleared": N }`(清除的地块数)。
 ---
+
+### 7.8 GET /v1/dev/assets — 完整资源清单(🛠 需 DEV_TOKEN)
+
+**认证:** `Authorization: Bearer <DEV_TOKEN>`(`server/.env` 配置;为空禁用,403 `DEV_DISABLED`)。
+
+**响应(data):**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `root` | str | 资源根目录 `app/static/assets` |
+| `count` | int | 文件总数 |
+| `tree` | object | 目录树(嵌套,叶子为 null) |
+| `files[]` | array | `{ "path", "url", "size", "ext" }` 每个文件及访问 URL |
+| `registry` | object | 注册表类型 → url_template |
+
+**URL 规则:** 注册表类型(audio/config)与 images 子目录(crops/terms/animals)→ `/v1/assets/...`;其他 → `/static/assets/...`。
+
+**示例:**
+
+```
+GET /v1/dev/assets
+Authorization: Bearer dev_xxx
+→ { "count": 124, "files": [{ "path": "animals/happy/dog.png",
+      "url": "/v1/assets/images/animals/happy/dog.png", "size": 12345, "ext": "png" }, ...] }
+```
 
 ## 8. 管理后台端点详解(👑 全部需 admin token)
 

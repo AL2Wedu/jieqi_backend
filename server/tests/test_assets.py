@@ -39,10 +39,10 @@ def test_assets_image_serves():
 
 def test_assets_audio_serves():
     with TestClient(app) as c:
-        r = c.get("/v1/assets/audio/bgm/main.ogg")
+        r = c.get("/v1/assets/audio/bgm/main.wav")
         assert r.status_code == 200
-        assert r.headers["content-type"] == "audio/ogg"
-        assert r.content[:4] == b"OggS"
+        assert r.headers["content-type"] == "audio/wav"
+        assert r.content[:4] == b"RIFF"
 
 
 def test_assets_config_serves():

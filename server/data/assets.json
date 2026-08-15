@@ -6,7 +6,14 @@
     "url_template": "/v1/assets/images/{key}/{name}.{ext}?w={w}",
     "namespaces": {
       "crops": { "names": ["seed", "1", "2", "3"] },
-      "terms": { "names": ["main"] }
+      "terms": { "names": ["main"] },
+      "animals": {
+        "names": ["bear", "cat", "cat2", "chicken", "crow", "deer", "dog", "dog2",
+                  "fox", "frog", "hedgehog", "horse", "mouse", "owl", "ox", "panda",
+                  "penguin", "pig", "rabbit", "raccoon", "sheep", "sheep2", "squirrel",
+                  "wolf"],
+        "emotions": ["happy", "calm", "sad", "confused"]
+      }
     }
   },
   "audio": {

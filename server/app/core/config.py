@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     admin_username: str = "admin"
     admin_password: str = ""
     admin_enabled: bool = True
+    dev_token: str = ""  # 开发接口门控:Authorization: Bearer <dev_token>(为空则开发接口禁用)
 
 
 settings = Settings()

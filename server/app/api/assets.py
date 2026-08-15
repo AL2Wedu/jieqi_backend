@@ -129,6 +129,12 @@ def _serve(type_name: str, key: str, name: str, ext: str, w: int) -> FileRespons
 
     # 图片类型:预渲染选档(复用 svg_art 的作物/节气预渲染)
     if type_name == "images":
+        # animals(表情图)无预渲染,直接返回原图;crops/terms 走预渲染选档
+        if key.startswith("animals/"):
+            return FileResponse(
+                src, media_type="image/png",
+                headers={"Cache-Control": "public, max-age=86400"},
+            )
         chosen = _pick_size(w)
         if key.startswith("crops/"):
             ensure_prerendered(key.split("/", 1)[1])  # 幂等:缺档自动补渲染
