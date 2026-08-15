@@ -179,13 +179,13 @@
 | 39 | POST | `/v1/debug/weed/trigger` | 强制触发一次杂草生长 |
 | 40 | POST | `/v1/debug/weed/clear` | 清除我的全部杂草 |
 
-### 3.4.1 开发辅助接口(1,🛠 需 `DEV_TOKEN`)
+### 3.4.1 资源清单接口(1,🔐 需玩家登录 token)
 
 | # | 方法 | 路径 | 说明 |
 |---|---|---|---|
-| 41 | GET | `/v1/dev/assets` | 完整资源清单(遍历 assets 目录树:path/url/size,开发联调用) |
+| 41 | GET | `/v1/dev/assets` | 完整资源清单(遍历 assets 目录树:path/url/size,开发联调与客户端共用) |
 
-> **认证**:`Authorization: Bearer <DEV_TOKEN>`(配置在 `server/.env` 的 `DEV_TOKEN`;为空则接口整体禁用,返回 403 `DEV_DISABLED`)。
+> **认证**:`Authorization: Bearer <玩家登录 JWT>`(与玩家端接口一致,见 §3.1;无效/过期返回 401)。
 
 ### 3.5 管理后台(41,👑 全部需 admin token)
 
@@ -921,9 +921,9 @@ GET /v1/social/players/{player_id}/farm
 **响应(data):** `{ "cleared": N }`(清除的地块数)。
 ---
 
-### 7.8 GET /v1/dev/assets — 完整资源清单(🛠 需 DEV_TOKEN)
+### 7.8 GET /v1/dev/assets — 完整资源清单(🔐 需玩家登录 token)
 
-**认证:** `Authorization: Bearer <DEV_TOKEN>`(`server/.env` 配置;为空禁用,403 `DEV_DISABLED`)。
+**认证:** `Authorization: Bearer <玩家登录 JWT>`(与玩家端接口一致,见 §3.1;无效/过期返回 401)。
 
 **响应(data):**
 

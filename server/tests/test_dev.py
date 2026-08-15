@@ -1,10 +1,20 @@
-"""开发接口测试:DEV_TOKEN 门控 + 资源清单。"""
+"""开发资源清单接口测试:玩家登录 token 门控 + 资源清单。"""
+import uuid
+
 from fastapi.testclient import TestClient
 
 from app.main import app
 
 
-def test_dev_assets_requires_token():
+def _reg(client) -> str:
+    """注册新玩家,返回登录 token。"""
+    name = f"dev_{uuid.uuid4().hex[:8]}"
+    r = client.post("/v1/auth/register", json={"name": name, "password": "pass123456"})
+    assert r.status_code == 200
+    return r.json()["data"]["token"]
+
+
+def test_dev_assets_requires_login():
     with TestClient(app) as c:
         # 无 token → 401
         r = c.get("/v1/dev/assets")
@@ -15,11 +25,9 @@ def test_dev_assets_requires_token():
 
 
 def test_dev_assets_lists_all_resources():
-    from app.core.config import settings
-
     with TestClient(app) as c:
-        assert settings.dev_token, "测试需 .env 配置 DEV_TOKEN"
-        r = c.get("/v1/dev/assets", headers={"Authorization": f"Bearer {settings.dev_token}"})
+        token = _reg(c)
+        r = c.get("/v1/dev/assets", headers={"Authorization": f"Bearer {token}"})
         assert r.status_code == 200
         d = r.json()["data"]
         assert d["count"] > 0

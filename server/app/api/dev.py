@@ -1,40 +1,31 @@
-"""开发辅助接口(仅开发环境,DEV_TOKEN 门控)。
+"""资源清单接口(玩家登录 token 门控)。
 
     GET /v1/dev/assets  :完整资源清单(遍历 app/static/assets 目录树,返回全部文件
-                         及其可访问 URL),开发/联调用。
+                         及其可访问 URL),开发联调与用户客户端共用。
 
-安全:必须带 `Authorization: Bearer <DEV_TOKEN>`;token 配在 .env 的 DEV_TOKEN,
-为空时接口整体禁用(403 DEV_DISABLED)。上线应保持为空。
+认证:必须带 `Authorization: Bearer <玩家登录 JWT>`(与其余玩家端接口一致,
+经 get_current_player 校验;无效/过期返回 401)。
 """
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Header
+from fastapi import APIRouter, Depends
 
-from app.core.config import settings
+from app.core.deps import get_current_player
 from app.core.errors import AppError, ok
+from app.models import Player
 
 router = APIRouter(prefix="/dev", tags=["dev"])
 
 STATIC_ASSETS = Path(__file__).resolve().parent.parent / "static" / "assets"
 
 
-def _require_dev_token(authorization: str | None = Header(default=None)) -> str:
-    """开发接口守卫:校验 Bearer <DEV_TOKEN>;token 未配置则整体禁用。"""
-    if not settings.dev_token:
-        raise AppError("DEV_DISABLED", "开发接口未启用(DEV_TOKEN 未配置)", http_status=403, code=90001)
-    if not authorization or not authorization.startswith("Bearer "):
-        raise AppError("UNAUTHORIZED", "缺少开发 token", http_status=401, code=10002)
-    token = authorization.removeprefix("Bearer ").strip()
-    if token != settings.dev_token:
-        raise AppError("UNAUTHORIZED", "开发 token 无效", http_status=401, code=10002)
-    return token
-
-
 @router.get("/assets")
-def dev_assets(_: str = Depends(_require_dev_token)):
+def dev_assets(_: Player = Depends(get_current_player)):
     """完整资源清单:遍历 assets 目录树,列出所有文件及访问 URL。
 
-    URL 规则:注册表中已有类型 → /v1/assets/{type}/{rel};未注册目录(如 animals)→ /static/assets/{rel}。
+    URL 规则:注册表类型(images/audio/config)→ /v1/assets/{type}/{rel};
+    crops/terms/animals 属 images 子目录 → /v1/assets/images/{rel};
+    未注册目录 → /static/assets/{rel}。
     """
     if not STATIC_ASSETS.exists():
         raise AppError("ASSET_NOT_FOUND", "资源目录不存在", http_status=404, code=28001)
