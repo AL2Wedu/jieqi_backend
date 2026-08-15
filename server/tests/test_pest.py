@@ -458,3 +458,43 @@ def test_big_pest_score_clamp_anti_cheat(client):
         headers=h,
     ).json()
     assert r["code"] == 28005
+
+
+def test_winter_clears_residual_pest(client):
+    """冬天清空残留虫害:秋末挂的寄生/事件在进入冬季后失效,不摧毁作物。"""
+    h = _reg(client, "pest_winter_clear")
+    plots = _plant(client, h, n=2)
+
+    # 秋季(活跃窗)触发小虫害,挂上寄生目标
+    _set_world_term(client, h, "pest_winter_clear", 15)  # 白露(活跃窗)
+    r = client.post("/v1/debug/pest/trigger", json={"type": "small"}, headers=h).json()
+    assert r["code"] == 0
+    targets = r["data"]["payload"]["targets"]
+    assert targets
+
+    # 推到冬季(立冬 19,非活跃窗)
+    _set_world_term(client, h, "pest_winter_clear", 19)
+    with SessionLocal() as db:
+        player = _player(db, "pest_winter_clear")
+        # check_expiry 在非活跃窗清空残留,不摧毁作物
+        destroyed = pest_service.check_expiry(db, player)
+        assert destroyed == []  # 不摧毁
+        st = pest_service.player_state(db, player)
+        assert st["active_small"] == []  # 残留寄生已清空
+        assert st["active_big"] is None
+    # 作物仍在
+    farm = client.get("/v1/farm/state", headers=h).json()["data"]
+    for t in targets:
+        p = next(x for x in farm["plots"] if x["plot_id"] == t["plot_id"])
+        assert p["crop"] is not None, f"地块 {t['plot_id']} 作物不应被摧毁"
+
+
+def test_winter_no_pest_trigger(client):
+    """冬天 fire_pest 拒绝触发(调试接口也遵循),不产生虫灾。"""
+    h = _reg(client, "pest_winter_trigger")
+    _plant(client, h, n=1)
+    _set_world_term(client, h, "pest_winter_trigger", 19)  # 立冬
+    r = client.post("/v1/debug/pest/trigger", json={"type": "big"}, headers=h).json()
+    assert r["code"] == 28004  # PEST_NO_TARGET(当前季节没有虫害)
+    r = client.post("/v1/debug/pest/trigger", json={"type": "small"}, headers=h).json()
+    assert r["code"] == 28004

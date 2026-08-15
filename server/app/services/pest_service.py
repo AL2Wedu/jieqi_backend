@@ -243,7 +243,12 @@ def _active_plots(db: Session, player: Player) -> list[tuple[Plot, CropInstance,
 
 
 def _spawn_small(db: Session, player: Player, count: int, now: datetime | None = None) -> dict:
-    """生成小虫害寄生目标(最多 count 个随机地块),每块独立计时。返回广播 payload。"""
+    """生成小虫害寄生目标(最多 count 个随机地块),每块独立计时。返回广播 payload。
+
+    非活跃窗口(冬季/早春)不生成 —— 冬天没有虫子,惩罚寄生也不该跨进冬天。
+    """
+    if not _pest_active(db, player):
+        raise AppError("PEST_NO_TARGET", "当前季节没有虫害", code=28004)
     now = now or _utcnow()
     cfg = pest_config(db)
     plots = _active_plots(db, player)
@@ -287,10 +292,15 @@ def _spawn_small(db: Session, player: Player, count: int, now: datetime | None =
 
 
 def fire_pest(db: Session, player: Player, forced_type: str | None = None) -> dict:
-    """触发一次虫害(每用户隔离);返回 WS 广播负载。forced_type: big / small。"""
+    """触发一次虫害(每用户隔离);返回 WS 广播负载。forced_type: big / small。
+
+    非活跃窗口(冬季/早春)不触发 —— 冬天没有虫子(调试接口也遵循,保证一致)。
+    """
     cfg = pest_config(db)
     if not cfg["pest.enabled"]:
         raise AppError("PEST_DISABLED", "虫害系统未启用", code=28002)
+    if not _pest_active(db, player):
+        raise AppError("PEST_NO_TARGET", "当前季节没有虫害", code=28004)
     if has_active_pest(db, player):
         raise AppError("PEST_BUSY", "已有进行中的虫害", code=28003)
     ptype = forced_type or (
@@ -502,8 +512,27 @@ def _close_small_event(db: Session, player: Player, pest_id, destroyed: bool) ->
 
 
 def check_expiry(db: Session, player: Player) -> list[dict]:
-    """到点摧毁:虫子在 ready_at 到达后直接摧毁地块作物并消失。返回被摧毁列表(供 WS 推送)。"""
+    """到点摧毁:虫子在 ready_at 到达后直接摧毁地块作物并消失。返回被摧毁列表(供 WS 推送)。
+
+    非活跃窗口(冬季/早春):残留虫害立即失效 —— 清空所有进行中的寄生目标与事件,
+    不摧毁作物(冬天没有虫子,也不该有"秋末残留的虫"继续毁田)。
+    """
     now = _utcnow()
+    if not _pest_active(db, player):
+        # 越冬期:清空残留虫害(小虫害目标 + 大/小虫害事件),作物不受损
+        n_targets = (
+            db.query(PestTarget)
+            .filter(PestTarget.player_id == player.id, PestTarget.status == 0)
+            .update({PestTarget.status: 2})
+        )
+        n_events = (
+            db.query(PestEvent)
+            .filter(PestEvent.player_id == player.id, PestEvent.status == 0)
+            .update({PestEvent.status: 2})
+        )
+        if n_targets or n_events:
+            db.commit()
+        return []
     overdue = (
         db.query(PestTarget)
         .filter(
