@@ -202,15 +202,27 @@ def buy(db: Session, player: Player, item_id: str, quantity: int) -> dict:
     if not row:
         row = UserShopItem(player_id=player.id, item_id=iid, stock=0)
         db.add(row)
-    if row.stock < quantity:
-        raise AppError(
-            "NOT_ENOUGH_STOCK", f"库存不足(剩余 {row.stock})", code=22006
-        )
+        db.flush()
     price = _item_price(item, settings, row) * quantity
     if player.coins < price:
         raise AppError("NOT_ENOUGH_COINS", "金币不足", code=22003)
+    # 幂等抢占:条件更新扣库存(仅当 stock 足够),原子防并发超卖
+    claimed = (
+        db.query(UserShopItem)
+        .filter(
+            UserShopItem.player_id == player.id,
+            UserShopItem.item_id == iid,
+            UserShopItem.stock >= quantity,
+        )
+        .update({UserShopItem.stock: UserShopItem.stock - quantity})
+    )
+    if claimed != 1:
+        # 已被并发购买扣空/扣不足
+        db.commit()
+        raise AppError(
+            "NOT_ENOUGH_STOCK", f"库存不足(剩余 {row.stock})", code=22006
+        )
     player.coins -= price
-    row.stock -= quantity
     ui = (
         db.query(UserItem)
         .filter(UserItem.player_id == player.id, UserItem.item_id == iid)
