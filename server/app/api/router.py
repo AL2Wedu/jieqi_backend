@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import time
 import uuid
 
@@ -25,6 +26,8 @@ from app.core.security import decode_token
 from app.models import Player
 from app.services import farm_service, pest_service, world_service
 from app.ws import manager
+
+logger = logging.getLogger("jieqi")
 
 api = APIRouter(prefix="/v1")
 api.include_router(auth.router)
@@ -167,7 +170,8 @@ async def ws_endpoint(websocket: WebSocket, token: str = Query(default="")):
             )
     except WebSocketDisconnect:
         pass
-    except Exception:
-        pass
+    except Exception as e:
+        # 记录异常而非静默吞掉,便于排查;连接随协程退出关闭
+        logger.exception("WS 连接异常断开(player=%s): %s", player_id, e)
     finally:
         manager.disconnect(websocket, player_id)
