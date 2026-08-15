@@ -2,7 +2,7 @@
 
 教育 + AI + 模拟经营游戏的后端仓库(元创S营项目)。客户端使用 Godot 4,后端为独立部署的 API 服务。
 
-**文档导航**:本文档(机制/架构/部署)→ [API.md](API.md)(全部接口,不读源码即可对接)→ [IMAGES.md](IMAGES.md)(美术素材)→ [docs/](docs/)(设计文档)
+**文档导航**:本文档(机制/架构/部署)→ [API.md](API.md)(全部接口,不读源码即可对接)→ [ASSETS.md](ASSETS.md)(游戏资源统一接口与全量清单)→ [docs/](docs/)(设计文档)
 
 ---
 
@@ -271,7 +271,7 @@
 
 **素材目录**:`static/assets/crops/<slug>/{seed,1,2,3}.png`、`static/assets/terms/<slug>/main.png`(均含 `_{size}.png` 预渲染档)。
 
-**相关 API**:`GET /v1/art/crops/{slug}/{name}.png?w=`、`GET /v1/art/terms/{term_index}.png?w=`、`GET /v1/art/version`
+**相关 API**:`GET /v1/art/{kind}/{key}/{name}.png?w=`(统一资源接口,kind=crops/terms)、`GET /v1/art/version`、`GET /v1/art/manifest`
 
 ## 2.14 实时推送(WebSocket)
 
@@ -366,7 +366,7 @@ static/assets/**(美术源+预渲染档)──▶ /v1/art 按分辨率下发
 
 ```
 jieqi_backend/
-├── README.md / API.md / IMAGES.md     # 本文档 / 接口参考 / 素材速查
+├── README.md / API.md / ASSETS.md     # 本文档 / 接口参考 / 资源统一接口与素材清单
 ├── docs/                              # 设计文档(01框架/02Schema/03API)
 └── server/
     ├── pyproject.toml / uv.lock       # uv 工程
@@ -518,6 +518,7 @@ sudo -u postgres createuser jieqi_app --pwprompt
 
 ```nginx
 # /etc/nginx/sites-available/jieqi
+proxy_cache_path /var/cache/nginx/jieqi levels=1:2 keys_zone=jieqi_cache:10m max_size=1g inactive=7d;
 server {
     listen 443 ssl;
     server_name api.example.com;
@@ -525,10 +526,28 @@ server {
     ssl_certificate_key /etc/letsencrypt/live/api.example.com/privkey.pem;
 
     client_max_body_size 10m;
-    # 静态素材(预渲染 PNG)长缓存
+    # 静态素材(管理后台 js/css)长缓存
     location /static/ {
         proxy_pass http://127.0.0.1:8000;
+        proxy_cache jieqi_cache;
         proxy_cache_valid 200 7d;
+    }
+    # 🔥 热点:统一资源接口(作物图/节气图,静态 PNG,全服最高频)
+    location /v1/art/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_cache jieqi_cache;
+        proxy_cache_valid 200 7d;
+        add_header Cache-Control "public, max-age=86400";  # 客户端也可缓存
+    }
+    # 🔥 热点:素材版本 / 清单(客户端轮询缓存刷新)—— 短缓存,改素材后 30-60s 内生效
+    location = /v1/art/version { proxy_pass http://127.0.0.1:8000; proxy_cache jieqi_cache; proxy_cache_valid 200 30s; }
+    location = /v1/art/manifest { proxy_pass http://127.0.0.1:8000; proxy_cache jieqi_cache; proxy_cache_valid 200 60s; }
+    # 动态 API(每用户鉴权/实时数据):一律不缓存
+    location /v1/ {
+        proxy_pass http://127.0.0.1:8000;
+        proxy_no_cache 1;
+        proxy_cache_bypass 1;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;  # IP 地理依赖
     }
     # 管理后台页面
     location = /admin { proxy_pass http://127.0.0.1:8000; }
@@ -545,12 +564,22 @@ server {
         proxy_set_header Upgrade $http_upgrade;
         proxy_set_header Connection "upgrade";
     }
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;  # IP 地理依赖
-    }
 }
 ```
+
+### 7.3.3.1 热点接口分析(缓存策略依据)
+
+| 接口 | 热度 | 请求特征 | Nginx 策略 | 说明 |
+|---|---|---|---|---|
+| 统一资源接口(作物/节气图) | 🔥🔥🔥 全服最高 | 静态 PNG,每地块作物 / 每节气反复拉,内容不变 | **proxy_cache 7d** + `Cache-Control 86400` | 可进一步上 CDN / 对象存储前置;响应本身带 ETag 可用 304 |
+| `/v1/art/version` | 🔥🔥 | 客户端每次进主界面轮询(缓存刷新依据) | 短缓存 **30s** | 改素材后 30s 内全网可见新版本 |
+| `/v1/art/manifest` | 🔥 | 客户端启动拉一次全量清单 | 短缓存 **60s** | 与 version 同源(mtime+哈希),短缓存即可 |
+| `/static/*` | 🔥 | 管理后台 js/css | 7d | 文件名带版本或内容哈希时更长 |
+| `/v1/farm/state`、`/v1/player/me`、`/v1/calendar/current` | 🔥 高频 | **每用户动态数据 + JWT 鉴权** | 禁止缓存 | 缓存会串号/泄露,必须 `proxy_no_cache` |
+| `/v1/ws`、`/v1/admin/logs` | 常连 | WebSocket 长连接 | Upgrade 透传 | 不能被 proxy_cache 拦截(WS 无缓存概念) |
+| AI 问答、商店、任务/社交/管理端 | 中 | 动态 + 账本副作用 | 禁止缓存 | 任何带写操作的接口不得缓存 |
+
+> 原则:静态素材**大胆缓存**(7d),版本元数据**短缓存**(30-60s),动态/鉴权/写操作**一律不缓存**。素材更新流程:替换 `static/assets/` 文件 → version 哈希自动变化 → 客户端 30s 内轮询到新版本 → 按 `crops[slug]`/`terms[slug]` 定向刷新。
 
 ### 7.3.4 多 worker 与节气广播(重要)
 

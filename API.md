@@ -2,7 +2,7 @@
 
 > **本文档是完整的接口参考:不 clone 后端源代码即可对接全部接口。**
 > 每个端点含:鉴权 / 请求(路径·查询·请求体字段表)/ 请求示例 / 响应示例与字段表 / 错误码 / 注意事项。
-> 配套:[README.md](README.md)(机制与部署)· [IMAGES.md](IMAGES.md)(美术素材)· 服务运行后 `GET /docs`(OpenAPI 交互文档)。
+> 配套:[README.md](README.md)(机制与部署)· [ASSETS.md](ASSETS.md)(游戏资源统一接口与全量清单)· 服务运行后 `GET /docs`(OpenAPI 交互文档)。
 
 **当前覆盖**:88 个 REST/WS 端点 + 3 个页面端点,与代码逐一核对(校验方法见第 13 章)。
 
@@ -145,8 +145,9 @@
 | # | 方法 | 路径 | 鉴权 | 说明 |
 |---|---|---|---|---|
 | 31 | GET | `/v1/art/version` | 🔓 | 素材版本(全局+逐作物+逐节气哈希) |
-| 32 | GET | `/v1/art/crops/{slug}/{name}.png?w=` | 🔓 | 作物素材(seed/1/2/3,按分辨率选档) |
-| 33 | GET | `/v1/art/terms/{term_index}.png?w=` | 🔓 | 24 节气图(1-24) |
+| 32 | GET | `/v1/art/manifest` | 🔓 | 素材全量清单(15 作物×4 + 24 节气 + 版本 + URL 模板) |
+| 33 | GET | `/v1/art/{kind}/{key}/{name}.png?w=` | 🔓 | **统一资源接口**:crops(seed/1/2/3)或 terms(main),按分辨率选档 |
+| 34 | GET | `/v1/art/terms/{term_index}.png?w=` | 🔓 | 24 节气图(1-24,兼容别名,等价 terms/{index}/main) |
 
 ### 3.4 调试接口(7,🧪 全部需 `DEBUG_ENABLED=true` + 🔐)
 
@@ -1267,9 +1268,12 @@ func _on_message(raw: String) -> void:
 ### 10.3 美术素材(作物 + 节气)
 
 ```
-GET /v1/art/crops/{slug}/{seed|1|2|3}.png?w=<px>    # 作物(1/2/3 = 苗期/生长期/成熟)
-GET /v1/art/terms/{term_index}.png?w=<px>           # 节气图(1-24)
+GET /v1/art/{kind}/{key}/{name}.png?w=<px>              # 统一资源接口(唯一入口)
+    # kind=crops:key=slug,name=seed|1|2|3(1/2/3 = 苗期/生长期/成熟)
+    # kind=terms:key=节气序号 1-24,name=main
+    # 旧路径 GET /v1/art/terms/{term_index}.png 仍可用(等价 terms/{index}/main)
 GET /v1/art/version                                 # 版本:version/crops/terms/sizes
+GET /v1/art/manifest                                # 全量清单:作物×4 + 节气×1 + 版本 + URL 模板
 ```
 
 - `w` 取**最小不小于 w** 的预渲染档(32/64/128/256),超出取最大档;响应 `image/png` + 长缓存。

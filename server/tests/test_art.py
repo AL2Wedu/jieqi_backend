@@ -104,3 +104,33 @@ def test_art_version_has_terms():
         }
         assert all(len(h) == 12 for h in terms.values())
         assert "terms" in r["data"] and "crops" in r["data"]
+
+
+def test_unified_asset_endpoint_and_manifest():
+    """统一资源接口:一个端点取全部素材 + manifest 全量清单。"""
+    with TestClient(app) as c:
+        # 统一路径:作物(crops 与旧路径同形)
+        assert c.get("/v1/art/crops/shuidao/1.png?w=64").status_code == 200
+        # 统一路径:节气 terms/{index}/main.png
+        assert c.get("/v1/art/terms/1/main.png?w=64").status_code == 200
+        assert c.get("/v1/art/terms/24/main.png?w=64").status_code == 200
+        # 兼容别名:旧路径 terms/{index}.png 仍可用
+        assert c.get("/v1/art/terms/1.png?w=64").status_code == 200
+        # 非法 kind / 非法素材名 / 非法节气 → 404
+        assert c.get("/v1/art/audio/rice/1.png?w=64").status_code == 404
+        assert c.get("/v1/art/crops/shuidao/bgm.png?w=64").status_code == 404
+        assert c.get("/v1/art/terms/25/main.png?w=64").status_code == 404
+        assert c.get("/v1/art/terms/abc/main.png?w=64").status_code == 404
+
+        # manifest:作物(seed 15 种 + 测试中 admin 新建的,≥15)× 4 素材 + 24 节气 + 版本 + URL 模板
+        r = c.get("/v1/art/manifest").json()
+        assert r["code"] == 0
+        d = r["data"]
+        assert len(d["crops"]) >= 15
+        rice = next(x for x in d["crops"] if x["slug"] == "shuidao")
+        assert rice["name"] == "水稻" and rice["assets"] == ["1", "2", "3", "seed"]
+        assert len(d["terms"]) == 24
+        assert d["terms"][0] == {"index": 1, "slug": "lichun", "name": "立春"}
+        assert d["version"] and d["sizes"] == [32, 64, 128, 256]
+        assert d["url_templates"]["crop"] == "/v1/art/crops/{slug}/{name}.png?w={w}"
+        assert d["url_templates"]["term"] == "/v1/art/terms/{index}/main.png?w={w}"
