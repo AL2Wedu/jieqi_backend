@@ -396,3 +396,38 @@ def test_season_big_ratio(client, monkeypatch):
     with SessionLocal() as db:
         ev = pest_service.fire_pest(db, _player(db, "pest_bigratio"))
         assert ev["type"] == "pest_small", ev
+
+
+def test_destroyed_crop_cannot_harvest_and_plot_resows(client):
+    """虫害摧毁的作物不可再收割(满值/经验),且地块可重种(不再死局)。"""
+    h = _reg(client, "pest_destroyed_resow")
+    plots = _plant(client, h, n=1)
+    pid = plots[0]
+
+    # 触发小虫害并直接让目标到点摧毁
+    r = client.post("/v1/debug/pest/trigger", json={"type": "small"}, headers=h).json()
+    assert r["code"] == 0
+    t = r["data"]["payload"]["targets"][0]
+    _backdate_target(client, h, t["pest_id"], t["plot_id"], 5)
+    with SessionLocal() as db:
+        from app.models import Player as P
+        from app.models import User
+        u = db.query(User).filter(User.name == "pest_destroyed_resow").first()
+        player = db.query(P).filter(P.user_id == u.id).first()
+        destroyed = pest_service.check_expiry(db, player)
+    assert len(destroyed) == 1
+
+    # 摧毁的作物不可收割(修复前会满值收割+经验)
+    r = client.post(f"/v1/farm/plots/{pid}/harvest", headers=h).json()
+    assert r["code"] == 21004  # PLOT_EMPTY(摧毁作物已不可见)
+    # 地块可重种(修复前报 PLOT_OCCUPIED 死局)
+    with SessionLocal() as db:
+        from app.models import Player as P, User, Crop
+        u = db.query(User).filter(User.name == "pest_destroyed_resow").first()
+        player = db.query(P).filter(P.user_id == u.id).first()
+    shop = client.get("/v1/shop/items", headers=h).json()["data"]["items"]
+    seed = next(i for i in shop if i["code"] == "seed_shuidao")
+    crop_id = seed["effect"]["crop_id"]
+    client.post(f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=h)
+    r = client.post(f"/v1/farm/plots/{pid}/sow", json={"crop_id": crop_id}, headers=h).json()
+    assert r["code"] == 0, r  # 可重种,不再死局

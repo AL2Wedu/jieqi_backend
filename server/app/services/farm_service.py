@@ -62,7 +62,11 @@ def _get_active_crop(db: Session, player, plot_id: str) -> CropInstance:
         raise AppError("PLOT_NOT_FOUND", "地块不存在", code=21001)
     ci = (
         db.query(CropInstance)
-        .filter(CropInstance.plot_id == plot.id, CropInstance.harvested_at.is_(None))
+        .filter(
+            CropInstance.plot_id == plot.id,
+            CropInstance.harvested_at.is_(None),
+            CropInstance.destroyed_at.is_(None),
+        )
         .first()
     )
     if not ci:
@@ -271,7 +275,11 @@ def sow(db: Session, player, plot_id: str, crop_id: str) -> dict:
         raise AppError("PLOT_NOT_FOUND", "地块不存在", code=21001)
     existing = (
         db.query(CropInstance)
-        .filter(CropInstance.plot_id == plot.id, CropInstance.harvested_at.is_(None))
+        .filter(
+            CropInstance.plot_id == plot.id,
+            CropInstance.harvested_at.is_(None),
+            CropInstance.destroyed_at.is_(None),
+        )
         .first()
     )
     if existing:
@@ -378,15 +386,44 @@ def harvest(db: Session, player, plot_id: str) -> dict:
         y *= _WILTED_YIELD_FACTOR
     yield_actual = int(round(max(1.0, y)))
     now = datetime.now(timezone.utc)
-    ci.harvested_at = now
-    ci.yield_actual = yield_actual
-    ci.term_bonus_applied = {
-        "sowed_term": ci.sowed_term_index,
-        "soil_quality": plot.soil_quality,
-        "fertility_need": fert_need,
-        "yield": yield_actual,
-        "wilted": is_wilted,
-    }
+    # 幂等抢占:条件更新 harvested_at(仅当仍为 NULL),原子防并发/重复收割
+    claimed = (
+        db.query(CropInstance)
+        .filter(
+            CropInstance.id == ci.id,
+            CropInstance.harvested_at.is_(None),
+            CropInstance.destroyed_at.is_(None),
+        )
+        .update(
+            {
+                CropInstance.harvested_at: now,
+                CropInstance.yield_actual: yield_actual,
+                CropInstance.term_bonus_applied: {
+                    "sowed_term": ci.sowed_term_index,
+                    "soil_quality": plot.soil_quality,
+                    "fertility_need": fert_need,
+                    "yield": yield_actual,
+                    "wilted": is_wilted,
+                },
+            }
+        )
+    )
+    if claimed != 1:
+        # 已被并发请求收割/摧毁:直接返回"已收获",不重复计产出
+        db.commit()
+        return {
+            "plot_id": plot_id,
+            "crop_id": str(crop.id),
+            "crop_name": crop.name,
+            "wilted": is_wilted,
+            "yield": 0,
+            "storage_after": _crop_storage_quantity(db, player, crop),
+            "exp_gained": 0,
+            "level": player.level,
+            "leveled_up": False,
+            "note": "作物已被收获,本次未重复计产出",
+        }
+    ci = db.get(CropInstance, ci.id)  # 同步抢占后的字段
     # 收成入仓(不直接结算金币):正常/枯萎分别入仓,枯萎劣质收成售价打折
     st = (
         db.query(CropStorage)
@@ -431,6 +468,16 @@ def harvest(db: Session, player, plot_id: str) -> dict:
         "leveled_up": exp_info["level_after"] > exp_info["level_before"],
         "note": note,
     }
+
+
+def _crop_storage_quantity(db: Session, player, crop) -> int:
+    """该玩家某作物的收成仓总数量(正常 + 枯萎劣质)。"""
+    st = (
+        db.query(CropStorage)
+        .filter(CropStorage.player_id == player.id, CropStorage.crop_id == crop.id)
+        .first()
+    )
+    return (st.quantity + st.wilted_quantity) if st else 0
 
 
 def clear(db: Session, player, plot_id: str) -> dict:
