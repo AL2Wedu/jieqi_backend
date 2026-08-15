@@ -54,6 +54,14 @@ def _resolve_player(db, token: str) -> Player | None:
         return None
 
 
+def _player_banned(db, player: Player) -> bool:
+    """玩家账号是否已被封禁(与 REST get_current_player 一致)。"""
+    from app.models import User
+
+    user = db.query(User).filter(User.id == player.user_id).first()
+    return user is not None and user.status != 1
+
+
 @api.websocket("/ws")
 async def ws_endpoint(websocket: WebSocket, token: str = Query(default="")):
     """每用户实时推送:节气(自己的世界)+ 虫害事件(定向)。
@@ -66,6 +74,9 @@ async def ws_endpoint(websocket: WebSocket, token: str = Query(default="")):
         player = _resolve_player(db, token)
         if player is None:
             await websocket.close(code=4401)
+            return
+        if _player_banned(db, player):
+            await websocket.close(code=4403)
             return
         await websocket.accept()
         world_service.sync_world(db, player)
@@ -96,26 +107,32 @@ async def ws_endpoint(websocket: WebSocket, token: str = Query(default="")):
                 pass
             except WebSocketDisconnect:
                 break
-            # 每轮:同步世界 → 节气推送 → 虫害检查
+            # 每轮:重新取玩家(防 detached 对象写不落库 + 封禁即时生效)→ 同步世界 → 节气推送 → 虫害检查
             with SessionLocal() as db:
-                world_service.sync_world(db, player)
+                fresh = (
+                    db.query(Player).filter(Player.id == player.id).first()
+                )
+                if fresh is None or _player_banned(db, fresh):
+                    # 账号被删/被封:静默关闭(客户端重连时被 4403 拒)
+                    break
+                world_service.sync_world(db, fresh)
                 db.commit()
-                cal = world_service.current_calendar(db, player)
+                cal = world_service.current_calendar(db, fresh)
                 # 1) 到点触发虫害(每用户隔离;已有进行中的事件则顺延;非活跃窗/离线回归由 is_due+sync_offline 门控)
                 event = None
                 try:
-                    if pest_service.is_due(db, player) and not pest_service.has_active_pest(db, player):
-                        event = pest_service.fire_pest(db, player)
+                    if pest_service.is_due(db, fresh) and not pest_service.has_active_pest(db, fresh):
+                        event = pest_service.fire_pest(db, fresh)
                 except Exception:
                     event = None
                 # 2) 小虫害倒计时到点摧毁
-                destroyed = pest_service.check_expiry(db, player)
+                destroyed = pest_service.check_expiry(db, fresh)
                 # 3) 枯萎判定:玩家季节进入作物枯萎季节 → 标记枯萎(冻死,仍占地块,待玩家铲除/收割)
-                withered = farm_service.check_wither(db, player)
+                withered = farm_service.check_wither(db, fresh)
                 # 4) 杂草判定:到点生长(随机地块附杂草)
                 from app.services import weed_service
 
-                weeded = weed_service.check_weed(db, player)
+                weeded = weed_service.check_weed(db, fresh)
             if event:
                 await manager.send_to_player(player_id, event)
             if destroyed:
