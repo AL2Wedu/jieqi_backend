@@ -3,11 +3,26 @@ import asyncio
 
 from fastapi import WebSocket
 
+# 每玩家连接数上限(防单账号开海量连接耗尽资源)
+MAX_CONNS_PER_PLAYER = 5
+# 全局连接数上限
+MAX_TOTAL_CONNS = 1000
+
 
 class ConnectionManager:
     def __init__(self) -> None:
         self.players: dict[str, set[WebSocket]] = {}
         self.loop: asyncio.AbstractEventLoop | None = None  # lifespan 里注入主事件循环
+
+    @property
+    def total_conns(self) -> int:
+        return sum(len(s) for s in self.players.values())
+
+    def can_connect(self, player_id: str) -> bool:
+        """连接数上限检查:每玩家 ≤ MAX_CONNS_PER_PLAYER,全局 ≤ MAX_TOTAL_CONNS。"""
+        if self.total_conns >= MAX_TOTAL_CONNS:
+            return False
+        return len(self.players.get(player_id, set())) < MAX_CONNS_PER_PLAYER
 
     def connect(self, ws: WebSocket, player_id: str) -> None:
         """注册连接(accept 由调用方完成,避免重复 accept)。"""

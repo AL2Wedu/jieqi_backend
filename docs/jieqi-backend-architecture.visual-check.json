@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "visual-check",
+  "status": "skipped",
+  "visualReview": "pending",
+  "artifact": {
+    "path": "C:\\Users\\YsyTom\\Desktop\\AL2Wedu\\jieqi_backend\\docs\\jieqi-backend-architecture.html",
+    "sha256": "253d9e26feb01e95de33443eeb6db0731d43c892ffe1a8372063ac7bd78cfd39",
+    "bytes": 637229
+  },
+  "state": {
+    "detail": "read",
+    "motion": "still"
+  },
+  "chrome": {
+    "status": "unavailable",
+    "executable": null
+  },
+  "containment": {
+    "status": "skipped",
+    "viewports": []
+  },
+  "captures": {
+    "status": "skipped",
+    "screenshots": [],
+    "contactSheet": null
+  },
+  "sidecars": {
+    "receipt": "jieqi-backend-architecture.visual-check.json",
+    "contactSheet": "jieqi-backend-architecture.visual-check.html"
+  },
+  "error": "Chrome or Chromium is unavailable. Set ARCHIFY_CHROME to its executable path."
+}

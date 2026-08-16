@@ -10,6 +10,7 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import inspect, text
 
 from app.api.router import api
+from app.core.config import settings
 from app.core.db import SessionLocal, engine
 from app.core.errors import AppError
 from app.models import Base
@@ -167,9 +168,11 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="jieqi_backend", version="0.1.0", lifespan=lifespan)
+# CORS:白名单配置化(cors_origins 逗号分隔);空 = 仅同源(不跨域,最安全)
+_cors_origins = [o.strip() for o in settings.cors_origins.split(",") if o.strip()]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_cors_origins or [],
     allow_methods=["*"],
     allow_headers=["*"],
 )

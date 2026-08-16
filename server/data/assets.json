@@ -27,5 +27,15 @@
     "ext": ["json"],
     "prerender": [],
     "url_template": "/v1/assets/config/{key}/{name}.{ext}"
+  },
+  "pests": {
+    "root": "app/static/assets/pests",
+    "ext": ["png"],
+    "prerender": [],
+    "url_template": "/v1/assets/pests/{key}/{name}.{ext}",
+    "namespaces": {
+      "main": { "names": ["蚜虫", "蝗虫", "螟虫", "菜青虫", "棉铃虫", "稻飞虱"] },
+      "banner": { "names": ["大虫害开场横幅配图"] }
+    }
   }
 }

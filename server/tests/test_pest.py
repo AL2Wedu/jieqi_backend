@@ -244,9 +244,10 @@ def test_big_pest_antitamper_and_reward(client):
     # 回拨 30×0.6=18s 之后 → 通过 → 达标 → 奖励
     _backdate_event(client, h, ev["pest_id"], 20)
     before = client.get("/v1/player/me", headers=h).json()["data"]["coins"]
+    # max_score 服务端推导 = 30s×10 = 300;score=200 → ratio=0.67 ≥ 0.6 → 达标
     r = client.post(
         f"/v1/farm/pest/{ev['pest_id']}/result",
-        json={"score": 90, "max_score": 100, "miss_count": 0},
+        json={"score": 200, "max_score": 100, "miss_count": 0},
         headers=h,
     ).json()
     assert r["code"] == 0, r
@@ -384,7 +385,7 @@ def test_season_big_ratio(client, monkeypatch):
     assert summer_r > spring_r > autumn_r
 
     # 行为验证:random()=0.4 → 夏季(0.5)出大虫,春季(0.3)出小虫
-    monkeypatch.setattr("app.services.pest_service.random.random", lambda: 0.4)
+    monkeypatch.setattr("app.services.pest_service._rng.random", lambda: 0.4)
     _set_world_term(client, h, "pest_bigratio", 9)
     with SessionLocal() as db:
         ev = pest_service.fire_pest(db, _player(db, "pest_bigratio"))  # forced_type=None → 按季节比例
@@ -432,7 +433,7 @@ def test_destroyed_crop_cannot_harvest_and_plot_resows(client):
 
 
 def test_big_pest_score_clamp_anti_cheat(client):
-    """大虫害成绩 clamp:score>max_score 会被收敛,不能靠 100/1 恒胜刷奖励。"""
+    """大虫害成绩 clamp:max_score 由服务端按时长推导(时长×10),客户端自报无效。"""
     h = _reg(client, "pest_score_clamp")
     _plant(client, h, n=1)
 
@@ -441,14 +442,17 @@ def test_big_pest_score_clamp_anti_cheat(client):
     ev = r["data"]["payload"]
     # 回拨 20s 绕过耗时校验
     _backdate_event(client, h, ev["pest_id"], 20)
-    # 提交 score=100/max_score=1:clamp 后 score→1,max_score→1,ratio=1 → 达标(仍判胜,但不再"作弊膨胀")
+    # 提交 score=100/max_score=1:max_score 服务端推导(30s 时长 → 300),
+    # score clamp 到 [0, 300] → 100;ratio=100/300 < 0.6 → 不达标(防 100/1 恒胜)
     r = client.post(
         f"/v1/farm/pest/{ev['pest_id']}/result",
         json={"score": 100, "max_score": 1, "miss_count": 0},
         headers=h,
     ).json()
     assert r["code"] == 0, r
-    assert r["data"]["score"] == 1 and r["data"]["max_score"] == 1  # 已 clamp
+    assert r["data"]["max_score"] == 300  # 服务端推导(30s × 10)
+    assert r["data"]["score"] == 100  # 客户端 score 保留(≤ 服务端 max_score)
+    assert r["data"]["passed"] is False  # 100/300 < 0.6 → 不达标
     # 重复提交 → 事件已结束
     r = client.post(
         f"/v1/farm/pest/{ev['pest_id']}/result",

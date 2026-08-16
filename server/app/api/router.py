@@ -87,6 +87,10 @@ async def ws_endpoint(websocket: WebSocket, token: str = Query(default="")):
         if _player_banned(db, player):
             await websocket.close(code=4403)
             return
+        if not manager.can_connect(str(player.id)):
+            # 连接数超限:拒绝(客户端应复用已有连接)
+            await websocket.close(code=4429)
+            return
         await websocket.accept()
         world_service.sync_world(db, player)
         pest_service.sync_offline(db, player)  # 离线回归:错过排程顺延;冬季/早春清空不排虫

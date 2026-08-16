@@ -2,12 +2,13 @@ import asyncio
 import json
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Query, Request, WebSocket, WebSocketDisconnect
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.core.deps import get_current_admin, get_db
 from app.core.errors import AppError, ok
+from app.core.ratelimit import admin_login_limiter
 from app.core.security import create_admin_token, is_admin_token
 from app.schemas import (
     AdminAiConfigPayload,
@@ -36,15 +37,21 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 
 @router.post("/login")
-def login(req: AdminLoginRequest, db: Session = Depends(get_db)):
+def login(req: AdminLoginRequest, request: Request, db: Session = Depends(get_db)):
     if not settings.admin_enabled:
         raise AppError("ADMIN_DISABLED", "管理后台已关闭", http_status=403, code=30002)
+    ip = request.client.host if request.client else "unknown"
+    if settings.rate_limit_enabled and not admin_login_limiter.allow(f"admin:{ip}"):
+        raise AppError(
+            "RATE_LIMITED", "登录尝试过于频繁,请稍后再试", http_status=429, code=10003
+        )
     if (
         req.username != settings.admin_username
         or not settings.admin_password
         or req.password != settings.admin_password
     ):
         raise AppError("ADMIN_BAD_CREDENTIALS", "管理员账号或密码错误", http_status=401, code=30001)
+    admin_login_limiter.reset(f"admin:{ip}")
     return ok({"token": create_admin_token()})
 
 

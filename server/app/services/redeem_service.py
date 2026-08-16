@@ -203,6 +203,18 @@ def redeem(db: Session, player: Player, code: str) -> dict:
     if not rc or rc.active != 1 or (rc.expires_at and ensure_aware(rc.expires_at) < now):
         db.commit()
         raise AppError("REDEEM_INVALID", "无效的兑换码", code=20010)
+    # 每人限领(先查后抢,防并发下回滚次数互相踩踏)
+    cnt = (
+        db.query(RedeemClaim.id)
+        .filter(
+            RedeemClaim.player_id == player.id,
+            RedeemClaim.redeem_code_id == rc.id,
+        )
+        .count()
+    )
+    if cnt >= rc.per_player_limit:
+        db.commit()
+        raise AppError("REDEEM_CLAIMED", "该兑换码已兑换过", code=20011)
     # 原子抢占次数:仅当 未停用 且 (不限次数 或 未用满) 才 +1;并发只命中一次
     claimed = (
         db.query(RedeemCode)
@@ -216,19 +228,6 @@ def redeem(db: Session, player: Player, code: str) -> dict:
     if claimed != 1:
         db.commit()
         raise AppError("REDEEM_EXHAUSTED", "兑换码已用完", code=20012)
-    # 每人限领
-    cnt = (
-        db.query(RedeemClaim.id)
-        .filter(
-            RedeemClaim.player_id == player.id,
-            RedeemClaim.redeem_code_id == rc.id,
-        )
-        .count()
-    )
-    if cnt >= rc.per_player_limit:
-        rc.used_count -= 1  # 回滚已抢次数
-        db.commit()
-        raise AppError("REDEEM_CLAIMED", "该兑换码已兑换过", code=20011)
     # 发奖励(走账本)+ 记领取
     result = grant_reward(db, player, rc.reward, reason=f"redeem:{rc.batch_name or code[:8]}")
     db.add(RedeemClaim(player_id=player.id, redeem_code_id=rc.id, claimed_at=now))
