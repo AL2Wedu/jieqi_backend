@@ -152,8 +152,8 @@ def test_small_pest_lifecycle(client, monkeypatch):
     h = _reg(client, "pest_small")
     plots = _plant(client, h, n=3)
 
-    # 固定寄生数量为 3,避免随机 flaky(randint 由 fire_pest 内部调用)
-    monkeypatch.setattr("app.services.pest_service.random.randint", lambda a, b: 3)
+    # 固定寄生数量为 3,避免随机 flaky(randint 由 fire_pest 内部调用;随机源已改 _rng=SystemRandom)
+    monkeypatch.setattr("app.services.pest_service._rng.randint", lambda a, b: 3)
     # 触发小虫害(强制 small)
     r = client.post("/v1/debug/pest/trigger", json={"type": "small"}, headers=h).json()
     assert r["code"] == 0, r
@@ -352,7 +352,7 @@ def test_season_frequency_interval(client, monkeypatch):
     """夏季触发间隔短于春季(频率倍率 1.5 vs 0.6)。"""
     h = _reg(client, "pest_season")
     _plant(client, h, n=1)
-    monkeypatch.setattr("app.services.pest_service.random.uniform", lambda a, b: 1.0)
+    monkeypatch.setattr("app.services.pest_service._rng.uniform", lambda a, b: 1.0)
 
     from app.core.utils import ensure_aware
 
