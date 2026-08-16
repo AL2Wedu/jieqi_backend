@@ -257,7 +257,9 @@ def _build_messages_impl(s: AiGuestSession, crop: Crop, history: list[dict], use
         system += "5. 你上一次输出不是合法 JSON!必须只输出一个合法 JSON 对象。\n"
     messages = [{"role": "system", "content": system}]
     for m in history[-int(cfg["guest.context_messages"]):]:
-        messages.append({"role": m["role"], "content": m["content"]})
+        # 客人消息 role 存库为 "guest",OpenAI 兼容 API 只认 assistant → 映射
+        role = "assistant" if m["role"] == "guest" else m["role"]
+        messages.append({"role": role, "content": m["content"]})
     messages.append({"role": "user", "content": user_msg})
     return messages
 
