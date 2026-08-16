@@ -333,6 +333,7 @@ async def _ask(db: Session, player: Player, s: AiGuestSession, crop: Crop, user_
                 db,
                 player,
                 {"model": None, "messages": messages, "temperature": 0.8, "max_tokens": 300},
+                thinking=False,  # 客人回复是短 JSON,禁用思考省 token/降延迟
             )
             text = raw["choices"][0]["message"]["content"]
             return _validate_reply(_parse_reply(text), s, crop, cfg)

@@ -642,7 +642,7 @@ bargaining --cancel--> cancelled
 
 **结算:** 复用 `_settle_sale`(先扣正常后扣枯萎,枯萎按 offer×wilted_ratio 折价);金币 + `coin_transactions`(reason=`guest_sell:<guest_key>`)。
 
-**成本控制:** 每玩家同时最多 1 个活跃会话(`29001 GUEST_BUSY`);start 冷却 `guest.cooldown_seconds`(默认 30s,`29002`);`guest.max_turns` 轮次上限;历史截断 `guest.context_messages`(默认 12 条);AI 用量自动进 `ai_usage`。
+**成本控制:** 每玩家同时最多 1 个活跃会话(`29001 GUEST_BUSY`);start 冷却 `guest.cooldown_seconds`(默认 30s,`29002`);`guest.max_turns` 轮次上限;历史截断 `guest.context_messages`(默认 12 条);AI 用量自动进 `ai_usage`;**AI 客人请求固定 `thinking: disabled`**(回复是短 JSON,禁用思考链省 token/降延迟,不受全局 `ai.thinking` 影响)。
 
 **错误:** `29001`-`29007`(见错误码表)· `22007 NOT_ENOUGH_CROP`(收成仓无货)· `21005 CROP_NOT_FOUND`
 
@@ -701,7 +701,7 @@ bargaining --cancel--> cancelled
 
 **结算:** 复用 `_settle_sale` 逐项扣收成仓 + 加金币;金币进 `coin_transactions`(reason=`order_sell:<guest_key>`)。
 
-**成本控制:** 每玩家同时最多 1 个活跃点菜会话(`29001 GUEST_BUSY`);start 冷却 `order.cooldown_seconds`(默认 30s);`order.max_turns` 轮次上限;历史截断 `order.context_messages`;AI 用量自动进 `ai_usage`。
+**成本控制:** 每玩家同时最多 1 个活跃点菜会话(`29001 GUEST_BUSY`);start 冷却 `order.cooldown_seconds`(默认 30s);`order.max_turns` 轮次上限;历史截断 `order.context_messages`;AI 用量自动进 `ai_usage`;**AI 客人请求固定 `thinking: disabled`**(回复是短 JSON,禁用思考链省 token/降延迟,不受全局 `ai.thinking` 影响)。
 
 **错误:** `29001`-`29007`(见错误码表)· `22007 NOT_ENOUGH_CROP`(收成仓无货)· `21005 CROP_NOT_FOUND`
 
@@ -1368,7 +1368,7 @@ Authorization: Bearer dev_xxx
 
 **请求体:** `{ "enabled": bool, "base_url": str, "api_key": str, "model": str, "thinking": bool }`(全可选)。
 
-- `thinking`(思考模式):默认 `true`;设为 `false` 时,`/v1/ai/chat` 转发会剥离 `reasoning` / `reasoning_effort` / `thinking` 字段(省 token、降延迟)。
+- `thinking`(思考模式):默认 `true`;设为 `false` 时,`/v1/ai/chat` 转发会剥离 `reasoning` / `reasoning_effort` / `thinking` 字段(省 token、降延迟)。**AI 客人(议价/点菜)请求固定 `thinking: disabled`,不受此开关影响**。
 
 **响应(data):** 同 8.41(打码)。
 

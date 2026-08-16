@@ -42,7 +42,7 @@ def _harvest_rice(client, h):
 def _mock_chat(monkeypatch, content):
     from app.services import ai_service
 
-    async def fake_chat(db, player, payload):
+    async def fake_chat(db, player, payload, **kwargs):
         return {"choices": [{"message": {"content": content}}], "usage": {}}
 
     monkeypatch.setattr(ai_service, "chat", fake_chat)

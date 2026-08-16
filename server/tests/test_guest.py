@@ -47,7 +47,7 @@ def _harvest_rice(client, h):
 def _mock_chat(monkeypatch, content):
     from app.services import ai_service
 
-    async def fake_chat(db, player, payload):
+    async def fake_chat(db, player, payload, **kwargs):
         return {"choices": [{"message": {"content": content}}], "usage": {}}
 
     monkeypatch.setattr(ai_service, "chat", fake_chat)
@@ -193,7 +193,7 @@ def test_ask_parse_retry_and_fallback(client, monkeypatch):
 
     calls = {"n": 0}
 
-    async def broken_chat(db, player, payload):
+    async def broken_chat(db, player, payload, **kwargs):
         calls["n"] += 1
         return {"choices": [{"message": {"content": "不是JSON"}}], "usage": {}}
 

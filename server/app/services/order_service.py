@@ -262,7 +262,8 @@ async def _ask_start(db: Session, player: Player, guest: dict, menu: list[dict],
         messages = _build_system_prompt(guest, menu, [], "请开始点单", attempt > 0, cfg)
         try:
             raw = await ai_service.chat(
-                db, player, {"model": None, "messages": messages, "temperature": 0.8, "max_tokens": 300}
+                db, player, {"model": None, "messages": messages, "temperature": 0.8, "max_tokens": 300},
+                thinking=False,  # 客人回复是短 JSON,禁用思考省 token/降延迟
             )
             text = raw["choices"][0]["message"]["content"]
             return _validate_start_reply(_parse_reply(text), menu)
@@ -280,7 +281,8 @@ async def _ask_chat(db: Session, player: Player, guest: dict, menu: list[dict], 
         messages = _build_chat_system_prompt(guest, menu, history, user_msg, attempt > 0, cfg)
         try:
             raw = await ai_service.chat(
-                db, player, {"model": None, "messages": messages, "temperature": 0.8, "max_tokens": 300}
+                db, player, {"model": None, "messages": messages, "temperature": 0.8, "max_tokens": 300},
+                thinking=False,  # 客人回复是短 JSON,禁用思考省 token/降延迟
             )
             text = raw["choices"][0]["message"]["content"]
             return _validate_chat_reply(_parse_reply(text))

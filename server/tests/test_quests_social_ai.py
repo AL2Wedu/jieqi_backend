@@ -275,6 +275,9 @@ def test_ai_thinking_off_strips_reasoning(client, monkeypatch):
         ai_service.save_ai_config(db, {"thinking": True})
         asyncio.run(ai_service.chat(db, p, {"model": "m", "messages": [], "reasoning": "chain"}))
         assert captured["body"].get("reasoning") == "chain"
+        # 显式 thinking=False → 请求体带 {"thinking": {"type": "disabled"}}(DeepSeek 风格,客人等短 JSON 场景)
+        asyncio.run(ai_service.chat(db, p, {"model": "m", "messages": []}, thinking=False))
+        assert captured["body"].get("thinking") == {"type": "disabled"}
 
 
 def test_social_search_and_uuid_query(client):

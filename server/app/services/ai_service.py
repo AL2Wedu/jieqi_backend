@@ -99,8 +99,16 @@ def _record_usage(db: Session, player: Player, model: str, usage: dict) -> None:
     db.commit()
 
 
-async def chat(db: Session, player: Player, payload: dict) -> dict:
-    """OpenAI 兼容 /chat/completions 转发(透传请求体与响应,记录用量)。"""
+async def chat(
+    db: Session, player: Player, payload: dict, *, thinking: bool | None = None
+) -> dict:
+    """OpenAI 兼容 /chat/completions 转发(透传请求体与响应,记录用量)。
+
+    thinking 覆盖(默认 None = 跟随全局 ai.thinking 配置):
+    - None:跟随全局 —— ai.thinking=False 时剥离 reasoning/thinking 字段
+    - False:显式请求禁用思考 → 请求体带 {"thinking": {"type": "disabled"}}(DeepSeek 风格)
+    - True:显式保留,不剥离
+    """
     cfg = get_ai_config(db)
     if not cfg["enabled"]:
         raise AppError("AI_DISABLED", "AI 服务未启用", code=24001)
@@ -109,11 +117,15 @@ async def chat(db: Session, player: Player, payload: dict) -> dict:
     model = str(payload.get("model") or cfg["model"])
     body = {k: v for k, v in payload.items() if k != "model"}
     body["model"] = model
-    # 关闭思考:剥离 reasoning 字段(DeepSeek 等模型的思考链),省 token/降延迟
-    if not cfg["thinking"]:
+    if thinking is False:
+        # 显式禁用思考(客人等短 JSON 场景):主动带 thinking 字段,上游不产思考链(省 token/降延迟)
+        body["thinking"] = {"type": "disabled"}
+    elif thinking is None and not cfg["thinking"]:
+        # 全局关闭思考:剥离 reasoning 字段(DeepSeek 等模型的思考链),省 token/降延迟
         body.pop("reasoning", None)
         body.pop("reasoning_effort", None)
         body.pop("thinking", None)
+    # thinking=True: 不动 body(保留调用方字段)
     headers = {
         "Authorization": f"Bearer {cfg['api_key']}",
         "Content-Type": "application/json",
