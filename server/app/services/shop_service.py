@@ -89,6 +89,36 @@ def _wilted_price(crop: Crop, settings: ShopSettings, season: str) -> int:
     return max(1, int(round(_crop_price(crop, settings, season) * _WILTED_SELL_FACTOR)))
 
 
+def _crop_locked(player: Player, crop: Crop) -> bool:
+    """作物是否对当前玩家锁定(等级或经验达到其一即可,与播种校验 farm_service.sow 一致)。"""
+    exp_ok = crop.unlock_exp <= 0 or player.exp >= crop.unlock_exp
+    lvl_ok = crop.unlock_level <= 0 or player.level >= crop.unlock_level
+    return not (exp_ok or lvl_ok)
+
+
+def _item_locked(db: Session, player: Player, item: Item, crops: dict | None = None) -> bool:
+    """道具是否对当前玩家锁定。
+
+    种子道具跟随其作物的解锁(与播种校验一致:等级或经验其一);
+    非种子道具用 Item.unlock_level(管理端可配,默认 1 = 无门槛)。
+    """
+    eff = item.effect or {}
+    if eff.get("type") == "seed":
+        cid = eff.get("crop_id")
+        if cid:
+            try:
+                crop = (
+                    crops.get(uuid.UUID(cid))
+                    if crops is not None
+                    else db.get(Crop, uuid.UUID(cid))
+                )
+            except (TypeError, ValueError):
+                crop = None
+            if crop is not None:
+                return _crop_locked(player, crop)
+    return player.level < (item.unlock_level or 1)
+
+
 def ensure_shop(db: Session, player: Player) -> UserShop:
     shop = db.query(UserShop).filter(UserShop.player_id == player.id).first()
     if shop:
@@ -132,6 +162,8 @@ def shop_state(db: Session, player: Player) -> dict:
         r.item_id: r
         for r in db.query(UserShopItem).filter(UserShopItem.player_id == player.id).all()
     }
+    crop_rows = db.query(Crop).filter(Crop.active.is_(True)).order_by(Crop.sort_order).all()
+    crop_map = {c.id: c for c in crop_rows}
     items = []
     for item in db.query(Item).filter(Item.active.is_(True)).order_by(Item.sort_order).all():
         row = rows.get(item.id)
@@ -151,10 +183,11 @@ def shop_state(db: Session, player: Player) -> dict:
                 "stock": row.stock,
                 "buy_price": _item_price(item, settings, row),
                 "sell_price": row.sell_price,
+                "locked": _item_locked(db, player, item, crop_map),  # 种子跟随作物解锁;其余按 Item.unlock_level
             }
         )
     crops = []
-    for crop in db.query(Crop).filter(Crop.active.is_(True)).order_by(Crop.sort_order).all():
+    for crop in crop_rows:
         crops.append(
             {
                 "crop_id": str(crop.id),
@@ -169,6 +202,7 @@ def shop_state(db: Session, player: Player) -> dict:
                 "sow_window": crop.sow_window or {},
                 "unlock_level": crop.unlock_level or 0,
                 "unlock_exp": crop.unlock_exp or 0,
+                "locked": _crop_locked(player, crop),  # 当前玩家是否已解锁(等级或经验其一)
             }
         )
     db.commit()
@@ -191,6 +225,8 @@ def buy(db: Session, player: Player, item_id: str, quantity: int) -> dict:
     item = db.get(Item, iid)
     if not item or not item.active:
         raise AppError("ITEM_NOT_FOUND", "商品不存在", code=22002)
+    if _item_locked(db, player, item):
+        raise AppError("ITEM_LOCKED", f"{item.name}未解锁", code=22008)
     settings = get_settings(db)
     shop = ensure_shop(db, player)
     _maybe_restock(db, shop, settings)

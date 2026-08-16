@@ -168,3 +168,46 @@ def test_admin_shop_manage():
         assert r_get.status_code == 200, r_get.text
         stock = next(i for i in r_get.json()["data"]["items"] if i["code"] == "seed_shuidao")["stock"]
         assert stock == 3
+
+
+def test_shop_unlock_gate_and_locked_marking():
+    """商店解锁:种子跟随作物解锁(等级或经验其一);列表标注 locked;购买锁定商品被拒。"""
+    with TestClient(app) as c:
+        h = _reg(c, "shop_unlock")
+        state = c.get("/v1/shop/state", headers=h).json()["data"]
+        items = {i["code"]: i for i in state["items"]}
+        # 新玩家(1 级/0 经验):水稻种子解锁,棉花种子锁定;非种子道具默认不锁
+        assert items["seed_shuidao"]["locked"] is False
+        assert items["seed_mianhua"]["locked"] is True
+        assert items["fertilizer"]["locked"] is False
+        # 作物报价同样标注
+        quotes = {q["name"]: q for q in state["crop_quotes"]}
+        assert quotes["水稻"]["locked"] is False
+        assert quotes["棉花"]["locked"] is True
+
+        # 买锁定种子 → ITEM_LOCKED(22008)
+        r = c.post(
+            f"/v1/shop/items/{items['seed_mianhua']['item_id']}/buy",
+            json={"quantity": 1}, headers=h,
+        ).json()
+        assert r["code"] == 22008 and r["error_code"] == "ITEM_LOCKED", r
+        # 买解锁种子 → 成功
+        r = c.post(
+            f"/v1/shop/items/{items['seed_shuidao']['item_id']}/buy",
+            json={"quantity": 1}, headers=h,
+        ).json()
+        assert r["code"] == 0, r
+
+        # admin 给 300 经验 → 棉花解锁,可买
+        ah = _admin(c)
+        users = c.get("/v1/admin/users?page_size=50", headers=ah).json()["data"]["items"]
+        uid = next(u["user_id"] for u in users if u["name"] == "shop_unlock")
+        c.patch(f"/v1/admin/users/{uid}/assets", json={"exp": 300}, headers=ah)
+        state2 = c.get("/v1/shop/state", headers=h).json()["data"]
+        items2 = {i["code"]: i for i in state2["items"]}
+        assert items2["seed_mianhua"]["locked"] is False
+        r = c.post(
+            f"/v1/shop/items/{items2['seed_mianhua']['item_id']}/buy",
+            json={"quantity": 1}, headers=h,
+        ).json()
+        assert r["code"] == 0, r

@@ -193,6 +193,7 @@
 - 道具/种子售价 = `item.buy_price × item_factor`
 - 作物收购价 = `base_price × sell_factor × season_effect[季节] × category_factor[分类]`,且 **≤ 植物 `max_value`**(单株上限)
 - 默认系数:季节 春1.1/夏1.0/秋1.2/冬0.9;分类 谷物1.0/蔬菜1.1/花卉1.25;sell_factor 0.8
+- **解锁门控**:种子购买跟随作物解锁(等级或经验其一,与播种校验一致);商店列表 `items[].locked` / `crop_quotes[].locked` 标注,购买锁定商品返回 `22008 ITEM_LOCKED`
 
 **收成仓**:收获入仓(不直接变现)→ 玩家在任意时刻按**当前季节价**出售(`POST /v1/shop/crops/{crop_id}/sell`)。秋收秋卖最赚,冬卖最亏 —— 择机出售是玩法空间。仓内区分**正常收成**(原价)与**枯萎劣质收成**(`wilted_quantity`,收购价 ×0.3);出售时先扣正常、再扣枯萎。
 

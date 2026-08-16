@@ -533,10 +533,10 @@
 | `season` | str | 当前季节(spring/summer/autumn/winter) |
 | `restocked` | bool | 本次请求是否触发了自动补货 |
 | `restock_seconds` | int | 补货周期 |
-| `items[]` | array | 商品:`item_id/code/name/category/effect/stock(库存)/buy_price(公式价或覆盖价)/sell_price` |
-| `crop_quotes[]` | array | 作物收购报价:`crop_id/name/category/base_price/sell_price(当前季节收购价)/season/season_factor` |
+| `items[]` | array | 商品:`item_id/code/name/category/effect/stock(库存)/buy_price(公式价或覆盖价)/sell_price/locked(是否锁定)` |
+| `crop_quotes[]` | array | 作物收购报价:`crop_id/name/category/base_price/sell_price(当前季节收购价)/season/season_factor/unlock_level/unlock_exp/locked(是否锁定)` |
 
-**注意事项:** ① 每个玩家独立库存,售空不共享;② 道具价 = `base × item_factor`;作物收购价 = `base × sell_factor × season_effect × category_factor`,且 **≤ 植物 max_value**;③ 管理后台可逐用户覆盖商品(见 8.26)。
+**注意事项:** ① 每个玩家独立库存,售空不共享;② 道具价 = `base × item_factor`;作物收购价 = `base × sell_factor × season_effect × category_factor`,且 **≤ 植物 max_value**;③ 管理后台可逐用户覆盖商品(见 8.26);④ **解锁门控**:种子道具的 `locked` 跟随其作物(等级或经验达到其一即可,与播种校验一致),非种子道具按 `Item.unlock_level`(管理端可配);购买锁定商品返回 `22008 ITEM_LOCKED`。
 
 ### 5.13 GET /v1/shop/items — 商店商品(简版)(🔐)
 
@@ -556,7 +556,7 @@
 
 **响应(data):** `item_id` / `code` / `name` / `quantity`(本次购买量)/ `price`(总价)/ `unit_price` / `coins_balance`(购买后余额)/ `stock_after`(商店剩余库存)
 
-**错误:** `22002 ITEM_NOT_FOUND`(商品不存在)· `22003 NOT_ENOUGH_COINS`(金币不足)· `22006 SOLD_OUT`(售罄,若有)· `10001 INVALID_PARAMS`
+**错误:** `22002 ITEM_NOT_FOUND`(商品不存在)· `22008 ITEM_LOCKED`(未解锁,种子跟随作物解锁)· `22003 NOT_ENOUGH_COINS`(金币不足)· `22006 SOLD_OUT`(售罄,若有)· `10001 INVALID_PARAMS`
 
 **注意事项:** 扣金币 + 背包加数量,均写账本(`coin_transactions` / `item_transactions`)。
 
@@ -1528,6 +1528,7 @@ GET /v1/art/manifest                                # 全量清单:作物×4 + �
 | 22005 | ITEM_EXISTS | 400 | 道具 code 重复(管理端) |
 | 22006 | NOT_ENOUGH_STOCK | 400 | 商店库存不足 |
 | 22007 | NOT_ENOUGH_CROP | 400 | 收成仓数量不足 |
+| 22008 | ITEM_LOCKED | 400 | 商品未解锁(种子跟随作物解锁:等级或经验其一) |
 | 23001 | CROP_NOT_MATURE | 400 | 作物尚未成熟 |
 | 23002 | TERM_NOT_FOUND | 400 | 节气不存在 |
 

@@ -84,22 +84,39 @@ def test_jsonc_loader():
 # ---------- 2. 解锁经验 ----------
 
 def test_unlock_exp_gate(client):
-    """棉花需 300 经验/6 级:新玩家被锁;admin 给经验后解锁。"""
+    """棉花需 300 经验/6 级:新玩家被锁(商店购买 + 播种双门控);admin 给经验后解锁。"""
     h = _reg(client, "unlock_cotton")
     _advance_term(client, h, (5, 7))  # 棉花宜种窗
-    seed = _buy_seed(client, h, "seed_mianhua")
+    shop = client.get("/v1/shop/items", headers=h).json()["data"]["items"]
+    seed = next(i for i in shop if i["code"] == "seed_mianhua")
     state = client.get("/v1/farm/state", headers=h).json()["data"]
     pid = state["plots"][0]["plot_id"]
 
+    # 新玩家:商店购买被拒(ITEM_LOCKED,种子跟随作物解锁)
+    r = client.post(
+        f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=h
+    ).json()
+    assert r["code"] == 22008 and r["error_code"] == "ITEM_LOCKED", r
+
+    # 管理端直接发种子(绕过商店)→ 播种仍被锁(CROP_LOCKED)
+    ah = _admin(client)
+    users = client.get("/v1/admin/users?page_size=50", headers=ah).json()["data"]["items"]
+    uid = next(u["user_id"] for u in users if u["name"] == "unlock_cotton")
+    r = client.put(
+        f"/v1/admin/users/{uid}/inventory/{seed['item_id']}",
+        json={"quantity": 1}, headers=ah,
+    ).json()
+    assert r["code"] == 0, r
     r = _sow(client, h, seed, pid)
     assert r["code"] == 21008, r  # CROP_LOCKED
     assert r["error_code"] == "CROP_LOCKED"
 
-    # admin 给 300 经验 → 解锁
-    ah = _admin(client)
-    users = client.get("/v1/admin/users?page_size=50", headers=ah).json()["data"]["items"]
-    uid = next(u["user_id"] for u in users if u["name"] == "unlock_cotton")
+    # admin 给 300 经验 → 解锁:可买 + 可种
     client.patch(f"/v1/admin/users/{uid}/assets", json={"exp": 300}, headers=ah)
+    r = client.post(
+        f"/v1/shop/items/{seed['item_id']}/buy", json={"quantity": 1}, headers=h
+    ).json()
+    assert r["code"] == 0, r
     r = _sow(client, h, seed, pid)
     assert r["code"] == 0, r
 
