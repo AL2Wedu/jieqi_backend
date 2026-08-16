@@ -247,21 +247,22 @@ POST /v1/assets/notify?asset_type=audio&key=bgm&name=main   # 👑 需 admin tok
 
 ### 9.5 动物素材(商店 NPC)
 
-`animals` 是注册表中新声明的资源类型:按情绪分目录(中文目录名),**原图直发、无预渲染**(图片分辨率天然多样,保留原图)。
+`animals` 注册在 `images` 命名空间下(英文情绪/动物名),**走预渲染选档**(32/64/128/256,缺档首次请求自动补渲染)。
 
 ```
-GET /v1/assets/animals/{情绪}/{动物名}.png
+GET /v1/assets/images/animals/{情绪}/{动物名}.png?w=<目标像素>
 ```
 
-| key | 说明 |
+| 参数 | 说明 |
 |---|---|
-| `开心` / `平静` / `疑惑` / `失望` | 情绪目录(中文) |
-| `动物名` | 乌鸦/企鹅/兔/刺猬/松鼠/浣熊/熊/熊猫/牛/狐狸/狗/狗2/狼/猪/猫/猫2/猫头鹰/羊/羊2/老鼠/青蛙/马/鸡/鸭子/鹿 |
+| `情绪` | `happy` / `calm` / `sad` / `confused` |
+| `动物名` | bear/cat/cat2/chicken/crow/deer/dog/dog2/fox/frog/hedgehog/horse/mouse/owl/ox/panda/penguin/pig/rabbit/raccoon/sheep/sheep2/squirrel/wolf |
+| `w` | 8-1024,默认 128;取最小不小于 w 的预渲染档 |
 
 示例(Godot):
 
 ```gdscript
-var tex = await Backend.fetch_texture("%s/v1/assets/animals/开心/%s.png" % [Backend.base_url, "乌鸦"])
+var tex = await Backend.fetch_texture("%s/v1/assets/images/animals/happy/%s.png?w=128" % [Backend.base_url, "crow"])
 ```
 
 ### 9.6 害虫素材(大虫害音游)
