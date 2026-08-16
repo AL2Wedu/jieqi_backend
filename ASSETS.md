@@ -244,3 +244,46 @@ POST /v1/assets/notify?asset_type=audio&key=bgm&name=main   # 👑 需 admin tok
 ```
 
 客户端收到后按 `url` 拉取;若 `version` 与本地缓存不同则**强制更新该资源**。
+
+### 9.5 动物素材(商店 NPC)
+
+`animals` 注册在 `images` 命名空间下(英文情绪/动物名),**走预渲染选档**(32/64/128/256,缺档首次请求自动补渲染)。
+
+```
+GET /v1/assets/images/animals/{情绪}/{动物名}.png?w=<目标像素>
+```
+
+| 参数 | 说明 |
+|---|---|
+| `情绪` | `happy` / `calm` / `sad` / `confused` |
+| `动物名` | bear/cat/cat2/chicken/crow/deer/dog/dog2/fox/frog/hedgehog/horse/mouse/owl/ox/panda/penguin/pig/rabbit/raccoon/sheep/sheep2/squirrel/wolf |
+| `w` | 8-1024,默认 128;取最小不小于 w 的预渲染档 |
+
+示例(Godot):
+
+```gdscript
+var tex = await Backend.fetch_texture("%s/v1/assets/images/animals/happy/%s.png?w=128" % [Backend.base_url, "crow"])
+```
+
+### 9.6 害虫素材(大虫害音游)
+
+`pests` 是注册表中新声明的资源类型:按用途分目录,**原图直发、无预渲染**。
+
+```
+GET /v1/assets/pests/{key}/{害虫名}.png
+```
+
+| key | 说明 |
+|---|---|
+| `main` | 6 种害虫:蚜虫/蝗虫/螟虫/菜青虫/棉铃虫/稻飞虱(音游下落害虫、小虫害图标) |
+| `banner` | 大虫害开场横幅配图(音游开场横幅) |
+
+示例(Godot):
+
+```gdscript
+# 音游下落害虫(按害虫名取图)
+var tex = await Backend.fetch_texture("%s/v1/assets/pests/main/%s.png" % [Backend.base_url, "蚜虫".uri_encode()])
+# 大虫害开场横幅
+var banner = await Backend.fetch_texture("%s/v1/assets/pests/banner/%s.png" % [Backend.base_url, "大虫害开场横幅配图".uri_encode()])
+```
+

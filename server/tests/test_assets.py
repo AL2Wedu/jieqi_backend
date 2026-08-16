@@ -13,10 +13,17 @@ def test_registry_loads_types():
 
     reg = load_registry()
     assert "images" in reg and "audio" in reg and "config" in reg
+    assert "pests" in reg
     assert reg["images"]["prerender"] == [32, 64, 128, 256]
     assert "crops" in reg["images"]["namespaces"]
     assert "terms" in reg["images"]["namespaces"]
+    assert "animals" in reg["images"]["namespaces"]
     assert reg["images"]["namespaces"]["crops"]["names"] == ["seed", "1", "2", "3"]
+    # pests 直接分发原图:main 为 6 种害虫,banner 为大虫害横幅
+    assert reg["pests"]["prerender"] == []
+    assert "蚜虫" in reg["pests"]["namespaces"]["main"]["names"]
+    assert "稻飞虱" in reg["pests"]["namespaces"]["main"]["names"]
+    assert "大虫害开场横幅配图" in reg["pests"]["namespaces"]["banner"]["names"]
 
 
 def test_registry_type_lookup():
@@ -51,6 +58,26 @@ def test_assets_config_serves():
         assert r.status_code == 200
         assert r.headers["content-type"] == "application/json"
         assert b"welcome" in r.content
+
+
+def test_assets_pests_serves():
+    """害虫素材：音游下落害虫(main) + 大虫害横幅(banner)，原图直发。"""
+    with TestClient(app) as c:
+        r = c.get("/v1/assets/pests/main/蚜虫.png")
+        assert r.status_code == 200
+        assert r.headers["content-type"] == "image/png"
+        assert r.content[:8] == PNG_MAGIC
+        # 其他害虫
+        assert c.get("/v1/assets/pests/main/蝗虫.png").status_code == 200
+        assert c.get("/v1/assets/pests/main/螟虫.png").status_code == 200
+        assert c.get("/v1/assets/pests/main/菜青虫.png").status_code == 200
+        assert c.get("/v1/assets/pests/main/棉铃虫.png").status_code == 200
+        assert c.get("/v1/assets/pests/main/稻飞虱.png").status_code == 200
+        # 大虫害横幅
+        assert c.get("/v1/assets/pests/banner/大虫害开场横幅配图.png").status_code == 200
+        # 不存在的害虫 404
+        assert c.get("/v1/assets/pests/main/凤凰.png").status_code == 404
+        assert c.get("/v1/assets/pests/nope/蚜虫.png").status_code == 404
 
 
 def test_assets_unknown_type_404():
@@ -114,8 +141,11 @@ def test_assets_manifest_lists_types():
         assert r["code"] == 0
         d = r["data"]
         assert "images" in d["types"] and "audio" in d["types"] and "config" in d["types"]
+        assert "pests" in d["types"]
         assert d["types"]["images"]["prerender"] == [32, 64, 128, 256]
         assert d["types"]["audio"]["url_template"] == "/v1/assets/audio/{key}/{name}.{ext}"
+        assert d["types"]["pests"]["url_template"] == "/v1/assets/pests/{key}/{name}.{ext}"
+        assert "蚜虫" in d["types"]["pests"]["namespaces"]["main"]["names"]
         assert d["version"] and d["sizes"] == [32, 64, 128, 256]
 
 
