@@ -24,6 +24,7 @@ PREFIX = {
     "farm.py": "/farm",
     "shop.py": "/shop",
     "shop_guest.py": "/shop/guest",
+    "order.py": "/shop/order",
     "quests.py": "/quests",
     "social.py": "/social",
     "redeem.py": "/redeem",

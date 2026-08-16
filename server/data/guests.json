@@ -2,25 +2,49 @@
   {
     "key": "thrifty_granny",
     "name": "王奶奶",
+    "age": 68,
     "personality": "抠门,爱挑刺,反复压价,但被夸两句会不好意思",
     "offer_range": [0.6, 0.9],
     "opening": "小伙子,你这{菜}看着还行,便宜点呗?",
-    "avatar": "animals/calm/owl.png"
+    "order_prompt": "你是一位 68 岁的节俭老奶奶,想买点菜回家做饭,会精打细算、货比三家,但很讲道理。",
+    "avatar": "animals/calm/owl.png",
+    "emotions": {
+      "happy": "animals/happy/owl.png",
+      "calm": "animals/calm/owl.png",
+      "sad": "animals/sad/owl.png",
+      "confused": "animals/confused/owl.png"
+    }
   },
   {
     "key": "foodie_chef",
     "name": "陈大厨",
+    "age": 45,
     "personality": "识货爽快,好菜愿意出高价,不爱磨叽",
     "offer_range": [0.95, 1.3],
     "opening": "这{菜}新鲜!我出个实在价,成不成?",
-    "avatar": "animals/happy/dog.png"
+    "order_prompt": "你是一位 45 岁的专业大厨,识货爽快,买菜讲究新鲜和品质,愿意出合理价格。",
+    "avatar": "animals/happy/dog.png",
+    "emotions": {
+      "happy": "animals/happy/dog.png",
+      "calm": "animals/calm/dog.png",
+      "sad": "animals/sad/dog.png",
+      "confused": "animals/confused/dog.png"
+    }
   },
   {
     "key": "curious_student",
     "name": "小美",
+    "age": 22,
     "personality": "犹豫,爱问东问西,容易被说服",
     "offer_range": [0.75, 1.05],
     "opening": "请问这个{菜}怎么卖呀?",
-    "avatar": "animals/confused/cat.png"
+    "order_prompt": "你是一位 22 岁的大学生,第一次自己买菜,有点犹豫,爱问东问西,但很礼貌。",
+    "avatar": "animals/confused/cat.png",
+    "emotions": {
+      "happy": "animals/happy/cat.png",
+      "calm": "animals/calm/cat.png",
+      "sad": "animals/sad/cat.png",
+      "confused": "animals/confused/cat.png"
+    }
   }
 ]

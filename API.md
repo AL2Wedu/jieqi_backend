@@ -140,6 +140,11 @@
 | 34 | POST | `/v1/shop/guest/{session_id}/accept` | 🔐 | 接受客人当前报价 → 成交结算 |
 | 35 | POST | `/v1/shop/guest/{session_id}/cancel` | 🔐 | 赶客放弃,不成交 |
 | 36 | GET | `/v1/shop/guest/{session_id}` | 🔐 | 会话快照(含消息历史,断线重进用) |
+| 37 | POST | `/v1/shop/order/start` | 🔐 | 开始点菜会话:AI 收到菜种类+价格+提示词+客人名/年龄 → 输出点单 → 回传前端 |
+| 38 | POST | `/v1/shop/order/{session_id}/chat` | 🔐 | 多轮对话(保持上下文)→ AI 返回 {raw_text, emotion, is_complete} |
+| 39 | POST | `/v1/shop/order/{session_id}/confirm` | 🔐 | 玩家确认成交:服务端权威校验 → 扣菜+加金币 |
+| 40 | POST | `/v1/shop/order/{session_id}/cancel` | 🔐 | 取消点菜会话 |
+| 41 | GET | `/v1/shop/order/{session_id}` | 🔐 | 点菜会话快照(含消息历史) |
 | 36 | GET | `/v1/social/search?q=&exact=` | 🔐 | 按名字查玩家(排除自己):模糊包含 / 精确匹配(重名全返回) |
 | 37 | GET | `/v1/social/players/{player_id}` | 🔐 | UUID 查询:任意玩家公开资料 + 关系状态 |
 | 38 | GET | `/v1/social/players/{player_id}/farm` | 🔐 | 公开访客模式:任意玩家农场参观(田格数据,只读无副作用) |
@@ -642,7 +647,65 @@ bargaining --cancel--> cancelled
 
 **客人模板:** `server/data/guests.json`(3 个:王奶奶 0.6-0.9 / 陈大厨 0.95-1.3 / 小美 0.75-1.05,心理价位 = 市场价 × 随机系数,会话创建时定死)。管理后台可调 `guest.*` 配置与开关。
 
-### 5.18 社交查询与好友互动(🔐)
+### 5.18 AI 客人点菜购买(🔐,与议价并存)
+
+玩家与 LLM 扮演的客人**点菜购买**:客人报出想买的菜+总价,玩家核对后成交。与议价(5.17)独立前缀 `/v1/shop/order`,互不干扰。
+
+**接口一览:**
+
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/v1/shop/order/start` | 开始点菜:AI 收到菜种类+价格+提示词+客人名/年龄 → 输出 `{raw_text, items:[crop.id], total_price}` → 回传前端 |
+| POST | `/v1/shop/order/{session_id}/chat` | body `{message}` → 多轮对话(保持上下文)→ AI 返回 `{raw_text, emotion, is_complete}` |
+| POST | `/v1/shop/order/{session_id}/confirm` | body `{items:[{crop_id,quantity}], total_price}` → 玩家确认成交 → 服务端权威校验 → 扣菜+加金币 |
+| POST | `/v1/shop/order/{session_id}/cancel` | 取消点菜会话 |
+| GET | `/v1/shop/order/{session_id}` | 快照(含消息历史,断线重进) |
+
+**start 响应(data)字段:**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `session_id` | str | 会话 ID |
+| `guest_key` / `guest_name` / `guest_age` | str/int | 客人标识/名字/年龄 |
+| `avatar_url` | str | 客人头像 |
+| `raw_text` | str | AI 开场白(自然口语) |
+| `items` | array | AI 报的菜 `[crop.id]` |
+| `total_price` | int | AI 报的总价 |
+| `menu` | array | 全部在售菜 `[{crop_id, name, price}]` |
+
+**chat 响应(data)字段:**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `raw_text` | str | 客人回复 |
+| `emotion` | str | `happy/calm/sad/confused`(对应客人素材 4 情绪图) |
+| `is_complete` | bool | 对话是否结束 |
+| `status` | str | `bargaining/done/closed/cancelled` |
+
+**confirm 响应(data)字段:**
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `is_right` | bool | 是否成交正确(服务端权威判定) |
+| `is_complete` | bool | 是否结束 |
+| `emotion` | str | 成交→happy;失败→sad |
+| `settle` | object | 成交时:扣菜+加金币明细 |
+
+**核心规则:**
+- **极限 4 轮**(`order.max_turns`):4 轮后仍未完成 → 强制 `emotion=sad, is_complete=true, is_right=false`。
+- **成交判定**:`is_right` 由**服务端权威**比对(玩家 confirm 的 items/price vs 服务端重算价),不依赖 LLM 自报(防作弊)。
+- **没菜了**:玩家提交数量超库存 → `emotion=sad, is_complete=true, is_right=false`,不扣菜不加钱。
+- **价格权威**:`total_price` 服务端按 `_crop_price` 重算校验,玩家提交价 ≠ 重算价 → 不结算。
+
+**结算:** 复用 `_settle_sale` 逐项扣收成仓 + 加金币;金币进 `coin_transactions`(reason=`order_sell:<guest_key>`)。
+
+**成本控制:** 每玩家同时最多 1 个活跃点菜会话(`29001 GUEST_BUSY`);start 冷却 `order.cooldown_seconds`(默认 30s);`order.max_turns` 轮次上限;历史截断 `order.context_messages`;AI 用量自动进 `ai_usage`。
+
+**错误:** `29001`-`29007`(见错误码表)· `22007 NOT_ENOUGH_CROP`(收成仓无货)· `21005 CROP_NOT_FOUND`
+
+**客人模板:** `server/data/guests.json` 每个客人含 `age` / `order_prompt`(点菜独立提示词)/ `emotions`(4 情绪图映射)。管理后台可调 `order.*` 配置与开关。
+
+### 5.19 社交查询与好友互动(🔐)
 
 **名字搜索(找人加好友的入口):**
 
