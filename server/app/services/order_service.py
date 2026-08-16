@@ -18,6 +18,7 @@ import json
 import re
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from sqlalchemy.orm import Session
 
@@ -41,6 +42,34 @@ _DEFAULTS = {
     "order.json_retries": 1,
 }
 _EMOTIONS = ("happy", "calm", "sad", "confused")
+_PROMPTS_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "guest_prompts.json"
+
+
+def load_prompts() -> list[str]:
+    """身份模板池(guest_prompts.json,list of 模板字符串,支持 {name}/{age}/{personality} 占位符)。"""
+    try:
+        data = json.loads(_PROMPTS_PATH.read_text(encoding="utf-8"))
+        return [str(p).strip() for p in data if str(p).strip()]
+    except (OSError, ValueError):
+        return []
+
+
+def _pick_prompt(guest: dict) -> str:
+    """随机挑一个身份模板(密码学安全),替换占位符;池空时退回客人自带 order_prompt。"""
+    import random
+
+    pool = load_prompts()
+    if pool:
+        template = pool[random.SystemRandom().randrange(len(pool))]
+    else:
+        template = guest.get("order_prompt", "")
+    if not template:
+        return "你是一位普通顾客。"
+    return (
+        template.replace("{name}", guest.get("name", "顾客"))
+        .replace("{age}", str(guest.get("age", "")))
+        .replace("{personality}", guest.get("personality", "普通顾客"))
+    )
 
 
 def order_config(db: Session) -> dict:
@@ -132,7 +161,7 @@ def _try_finish(db: Session, s: AiGuestSession, status: str) -> bool:
 def _build_system_prompt(guest: dict, menu: list[dict], history: list[dict], user_msg: str, retrying: bool, cfg: dict) -> list[dict]:
     """构造 AI 输入:菜种类+价格 + 默认提示词 + 客人独立提示词 + 客人名/年龄。"""
     system = (
-        f"你是{guest['name']}({guest['age']}岁),{guest['order_prompt']}\n"
+        f"你是{guest['name']}({guest['age']}岁),{_pick_prompt(guest)}\n"
         f"摊主今天有这些菜:\n{_menu_text(menu)}\n"
         "规则:\n"
         "1. 用自然口语表达你想买什么菜,每次回复必须同时给出你的点单。\n"
@@ -155,7 +184,7 @@ def _build_system_prompt(guest: dict, menu: list[dict], history: list[dict], use
 def _build_chat_system_prompt(guest: dict, menu: list[dict], history: list[dict], user_msg: str, retrying: bool, cfg: dict) -> list[dict]:
     """多轮对话提示词:AI 返回 {raw_text, emotion, is_complete}。"""
     system = (
-        f"你是{guest['name']}({guest['age']}岁),{guest['order_prompt']}\n"
+        f"你是{guest['name']}({guest['age']}岁),{_pick_prompt(guest)}\n"
         f"摊主今天有这些菜:\n{_menu_text(menu)}\n"
         "规则:\n"
         "1. 用自然口语和摊主对话,表达你的购买意愿。\n"

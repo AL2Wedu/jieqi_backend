@@ -268,3 +268,27 @@ def test_fused_chat_or_start(client, monkeypatch):
     assert r["code"] == 0
     assert r["data"]["emotion"] == "happy" and r["data"]["is_complete"] is False
     assert r["data"]["status"] == "bargaining"
+
+
+def test_guest_prompt_pool_random_and_fallback():
+    """身份模板池:加载/占位符替换/随机性/池空兜底 order_prompt。"""
+    from app.services import guest_service, order_service
+
+    pool = order_service.load_prompts()
+    assert len(pool) >= 1  # 模板池非空
+    guest = guest_service._guest_by_key("thrifty_granny")
+    # 占位符全部替换
+    p = order_service._pick_prompt(guest)
+    assert "{name}" not in p and "{age}" not in p and "{personality}" not in p
+    assert guest["name"] in p and str(guest["age"]) in p
+    # 随机性:多次调用应出现不同模板
+    seen = {order_service._pick_prompt(guest) for _ in range(20)}
+    assert len(seen) >= 2
+    # 池空兜底 order_prompt
+    orig = order_service._PROMPTS_PATH
+    order_service._PROMPTS_PATH = orig.with_name("nonexistent.json")
+    try:
+        p2 = order_service._pick_prompt(guest)
+        assert "节俭" in p2 or "老奶奶" in p2
+    finally:
+        order_service._PROMPTS_PATH = orig
