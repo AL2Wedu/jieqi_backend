@@ -16,6 +16,7 @@ from app.api import (
     debug,
     dev,
     farm,
+    order,
     pest,
     player,
     quests,
@@ -39,6 +40,7 @@ api.include_router(calendar.router)
 api.include_router(farm.router)
 api.include_router(shop.router)
 api.include_router(shop_guest.router)
+api.include_router(order.router)
 api.include_router(quests.router)
 api.include_router(social.router)
 api.include_router(achievements.router)

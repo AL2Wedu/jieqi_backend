@@ -50,6 +50,19 @@ def _ensure_player_world_columns() -> None:
     except Exception as e:  # noqa: BLE001 迁移失败不阻塞启动(测试库重建不受影响)
         logger.warning("玩家世界/虫害列迁移跳过: %s", e)
     try:
+        cols = {c["name"] for c in inspect(engine).get_columns("ai_guest_sessions")}
+        with engine.begin() as conn:
+            if "mode" not in cols:
+                conn.execute(text("ALTER TABLE ai_guest_sessions ADD COLUMN mode VARCHAR(16) DEFAULT 'bargain'"))
+            if "order_items" not in cols:
+                conn.execute(text("ALTER TABLE ai_guest_sessions ADD COLUMN order_items JSON"))
+            if "order_total" not in cols:
+                conn.execute(text("ALTER TABLE ai_guest_sessions ADD COLUMN order_total INTEGER"))
+            if "is_right" not in cols:
+                conn.execute(text("ALTER TABLE ai_guest_sessions ADD COLUMN is_right BOOLEAN"))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("ai_guest_sessions 点菜列迁移跳过: %s", e)
+    try:
         cols = {c["name"] for c in inspect(engine).get_columns("crop_instances")}
         with engine.begin() as conn:
             if "destroyed_at" not in cols:

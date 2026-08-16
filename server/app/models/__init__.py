@@ -485,23 +485,28 @@ class PestTarget(Base):
 
 
 class AiGuestSession(Base):
-    """AI 客人议价会话:一次会话卖 1 份收成,多轮讨价还价。"""
+    """AI 客人会话:议价(bargain)或点菜(order)两种模式,多轮对话。"""
 
     __tablename__ = "ai_guest_sessions"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=gen_uuid)
     player_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("players.id"), index=True)
-    crop_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("crops.id"))
+    crop_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("crops.id"), nullable=True)  # 议价模式:单作物
     guest_key: Mapped[str] = mapped_column(String(32))
     guest_name: Mapped[str] = mapped_column(String(32))
+    mode: Mapped[str] = mapped_column(String(16), default="bargain")  # bargain=议价 / order=点菜
     status: Mapped[str] = mapped_column(String(16), default="bargaining")  # bargaining/done/closed/cancelled
-    base_price: Mapped[int] = mapped_column(Integer)  # 市场价快照(会话创建时)
+    base_price: Mapped[int] = mapped_column(Integer, default=0)  # 市场价快照(会话创建时)
     wilted_ratio: Mapped[float] = mapped_column(Float, default=0.2)  # 枯萎劣质收成的折扣比例(结算用)
     offer: Mapped[int] = mapped_column(Integer, default=0)  # AI 当前报价(服务端校验后)
     target_min: Mapped[int] = mapped_column(Integer, default=0)  # AI 心理价位下沿(会话内定死)
     target_max: Mapped[int] = mapped_column(Integer, default=0)  # AI 心理价位上沿
     turns: Mapped[int] = mapped_column(Integer, default=0)
     last_mood: Mapped[str] = mapped_column(String(16), default="plain")
+    # 点菜模式专用:AI 报的菜单 {crop_id: qty} / 总价 / 是否成交正确
+    order_items: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    order_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_right: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utcnow, onupdate=utcnow

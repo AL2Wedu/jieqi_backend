@@ -33,6 +33,7 @@ BOARDS = {
     "farm": ["test_api", "test_crop_settings", "test_weed"],
     "shop": ["test_shop"],
     "guest": ["test_guest"],
+    "order": ["test_order"],
     "pest": ["test_pest"],
     "world": ["test_world"],
     "social": ["test_quests_social_ai"],
