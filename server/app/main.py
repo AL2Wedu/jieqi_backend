@@ -241,10 +241,10 @@ def admin_page():
 
 @app.exception_handler(AppError)
 async def app_error_handler(request: Request, exc: AppError):
-    return JSONResponse(
-        status_code=exc.http_status,
-        content={"code": exc.code, "error_code": exc.error_code, "message": exc.message},
-    )
+    content: dict = {"code": exc.code, "error_code": exc.error_code, "message": exc.message}
+    if exc.extra is not None:
+        content["data"] = exc.extra
+    return JSONResponse(status_code=exc.http_status, content=content)
 
 
 @app.exception_handler(Exception)

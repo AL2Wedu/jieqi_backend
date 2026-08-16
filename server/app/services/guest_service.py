@@ -38,7 +38,7 @@ _KEYS = (
 )
 _DEFAULTS = {
     "guest.enabled": True,
-    "guest.cooldown_seconds": 30,
+    "guest.cooldown_seconds": 10,  # 客人走后 10-20s 再来（前端等待，冷却须 ≤ 10s）
     "guest.max_turns": 8,
     "guest.price_floor": 0.5,
     "guest.price_ceil": 1.5,
@@ -182,7 +182,10 @@ def start_guest(db: Session, player: Player, crop_id: str) -> dict:
         .first()
     )
     if active:
-        raise AppError("GUEST_BUSY", "已有客人正在谈,先谈完这单", code=29001)
+        raise AppError(
+            "GUEST_BUSY", "已有客人正在谈,先谈完这单", code=29001,
+            extra={"session_id": str(active.id)},  # 客户端据此恢复会话（赶客/继续谈）
+        )
     try:
         import uuid
 
