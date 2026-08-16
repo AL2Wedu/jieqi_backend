@@ -1050,7 +1050,7 @@ Authorization: Bearer dev_xxx
 
 ### 8.4 GET /v1/admin/users — 用户列表
 
-**查询参数:** `page`(默认 1)/ `page_size`(默认 20,≤100)。
+**查询参数:** `page`(默认 1)/ `page_size`(默认 20,≤100)/ `q`(可选,按用户名模糊搜索,通配符已转义)。
 
 **响应(data):** 分页信封,`items[]`:
 

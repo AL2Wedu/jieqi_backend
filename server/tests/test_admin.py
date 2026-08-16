@@ -53,6 +53,18 @@ def test_users_and_ban(client):
     target = next(u for u in r["data"]["items"] if u["name"] == "admin_test_user")
     uid = target["user_id"]
 
+    # 搜索:按用户名模糊匹配
+    r = client.get("/v1/admin/users?q=admin_test", headers=h).json()
+    assert r["code"] == 0
+    assert any(u["name"] == "admin_test_user" for u in r["data"]["items"])
+    assert r["data"]["total"] >= 1
+    # 搜索不存在的名字 → 空
+    r = client.get("/v1/admin/users?q=zzz_nonexist_zzz", headers=h).json()
+    assert r["code"] == 0 and r["data"]["total"] == 0
+    # 搜索含通配符的名字(转义,不误匹配)
+    r = client.get("/v1/admin/users?q=%25", headers=h).json()
+    assert r["code"] == 0 and r["data"]["total"] == 0
+
     # 封禁 → 登录失败
     r = client.patch(f"/v1/admin/users/{uid}/status", json={"status": 0}, headers=h).json()
     assert r["code"] == 0 and r["data"]["status"] == 0

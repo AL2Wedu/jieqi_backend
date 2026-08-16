@@ -69,10 +69,11 @@ def env(admin: str = Depends(get_current_admin)):
 def users(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
+    q: str = Query(default="", description="按用户名模糊搜索"),
     admin: str = Depends(get_current_admin),
     db: Session = Depends(get_db),
 ):
-    return ok(admin_service.list_users(db, page, page_size))
+    return ok(admin_service.list_users(db, page, page_size, q))
 
 
 @router.patch("/users/{user_id}/status")

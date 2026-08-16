@@ -91,11 +91,17 @@ def list_env() -> dict:
 
 # ---------- 用户 ----------
 
-def list_users(db: Session, page: int, page_size: int) -> dict:
-    total = db.query(func.count(User.id)).scalar() or 0
+def list_users(db: Session, page: int, page_size: int, q: str = "") -> dict:
+    """用户列表(分页,可按用户名模糊搜索)。"""
+    query = db.query(User)
+    q = (q or "").strip()
+    if q:
+        # 转义 LIKE 通配符,避免 % 和 _ 被当通配符
+        escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        query = query.filter(User.name.like(f"%{escaped}%", escape="\\"))
+    total = query.count()
     rows = (
-        db.query(User)
-        .order_by(User.created_at.desc())
+        query.order_by(User.created_at.desc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()

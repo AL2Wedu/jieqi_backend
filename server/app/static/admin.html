@@ -272,12 +272,21 @@ function card(title, big, sub) {
 
 /* ---------- 用户列表 ---------- */
 let userPage = 1;
+let userQuery = '';
 async function users(el) {
-  const d = await api(`/users?page=${userPage}&page_size=20`);
+  const qs = userQuery ? `&q=${encodeURIComponent(userQuery)}` : '';
+  const d = await api(`/users?page=${userPage}&page_size=20${qs}`);
   const totalPages = Math.max(1, Math.ceil(d.total / d.page_size));
   el.innerHTML = `
     <div class="page-head"><h1>用户列表</h1><span class="mono">共 ${d.total} 人</span></div>
-    <div class="panel"><table>
+    <div class="panel">
+      <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center">
+        <input class="inp" id="user-search" placeholder="按用户名搜索…" value="${esc(userQuery)}"
+          onkeydown="if(event.key==='Enter'){userQuery=this.value.trim();userPage=1;loadView();}">
+        <button class="btn small" onclick="userQuery=document.getElementById('user-search').value.trim();userPage=1;loadView()">搜索</button>
+        ${userQuery ? `<button class="btn small" onclick="userQuery='';userPage=1;loadView()">清除</button>` : ''}
+      </div>
+      <table>
       <thead><tr><th>用户名</th><th>ID</th><th>状态</th><th>等级</th><th>金币</th><th>注册IP</th><th>注册时间</th><th>操作</th></tr></thead>
       <tbody>${d.items.map(u => `<tr>
         <td>${esc(u.name)}</td>
