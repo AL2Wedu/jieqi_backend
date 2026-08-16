@@ -49,6 +49,7 @@ class AdminAiConfigPayload(BaseModel):
     base_url: str | None = None
     api_key: str | None = None
     model: str | None = None
+    thinking: bool | None = None  # 思考模式开关(关闭时转发剥离 reasoning)
 
 
 class PestResultRequest(BaseModel):

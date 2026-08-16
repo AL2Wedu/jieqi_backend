@@ -13,13 +13,14 @@ from sqlalchemy.orm import Session
 from app.core.errors import AppError
 from app.models import AiUsage, GameConfig, Player, User
 
-AI_KEYS = ("ai.enabled", "ai.base_url", "ai.api_key", "ai.model")
+AI_KEYS = ("ai.enabled", "ai.base_url", "ai.api_key", "ai.model", "ai.thinking")
 # 请求字段 → 存储键 映射
 AI_FIELD_MAP = {
     "enabled": "ai.enabled",
     "base_url": "ai.base_url",
     "api_key": "ai.api_key",
     "model": "ai.model",
+    "thinking": "ai.thinking",
 }
 
 
@@ -33,6 +34,8 @@ def get_ai_config(db: Session) -> dict:
         "base_url": str(cfgs.get("ai.base_url", "")).rstrip("/"),
         "api_key": str(cfgs.get("ai.api_key", "")),
         "model": str(cfgs.get("ai.model", "deepseek-chat")),
+        # 思考模式:默认开启;关闭时转发剥离 reasoning 字段(省 token/降延迟)
+        "thinking": bool(cfgs.get("ai.thinking", True)),
     }
 
 
@@ -98,6 +101,11 @@ async def chat(db: Session, player: Player, payload: dict) -> dict:
     model = str(payload.get("model") or cfg["model"])
     body = {k: v for k, v in payload.items() if k != "model"}
     body["model"] = model
+    # 关闭思考:剥离 reasoning 字段(DeepSeek 等模型的思考链),省 token/降延迟
+    if not cfg["thinking"]:
+        body.pop("reasoning", None)
+        body.pop("reasoning_effort", None)
+        body.pop("thinking", None)
     headers = {
         "Authorization": f"Bearer {cfg['api_key']}",
         "Content-Type": "application/json",

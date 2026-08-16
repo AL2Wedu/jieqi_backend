@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 
+import httpx
 import pytest
 import uvicorn
 from fastapi import FastAPI
@@ -222,6 +223,58 @@ def test_ai_relay(client, ai_stub):
 
 def _pid(client, h):
     return client.get("/v1/player/me", headers=h).json()["data"]["player_id"]
+
+
+def test_ai_thinking_off_strips_reasoning(client, monkeypatch):
+    """关闭思考:转发时剥离 reasoning 字段;开启时保留。"""
+    import asyncio
+
+    from app.core.db import SessionLocal
+    from app.models import Player, User
+    from app.services import ai_service
+
+    admin = client.post(
+        "/v1/admin/login", json={"username": "admin", "password": "admin123"}
+    ).json()
+    ah = {"Authorization": f"Bearer {admin['data']['token']}"}
+    h = _reg(client, "ai_think")
+
+    # 配置 AI(指向任意 base_url,monkeypatch 拦截 httpx)
+    r = client.put(
+        "/v1/admin/ai/config",
+        json={"enabled": True, "base_url": "http://stub", "api_key": "sk-key", "model": "m", "thinking": False},
+        headers=ah,
+    ).json()
+    assert r["code"] == 0
+    # 配置回读含 thinking
+    r = client.get("/v1/admin/ai/config", headers=ah).json()
+    assert r["data"]["thinking"] is False
+
+    captured = {}
+
+    async def fake_post(self, url, json=None, headers=None):
+        captured["body"] = json
+        return _FakeResp()
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"choices": [{"message": {"content": "ok"}}], "usage": {"total_tokens": 1}}
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    with SessionLocal() as db:
+        u = db.query(User).filter(User.name == "ai_think").first()
+        p = db.query(Player).filter(Player.user_id == u.id).first()
+        # 关闭思考 → 剥离 reasoning
+        asyncio.run(ai_service.chat(db, p, {"model": "m", "messages": [], "reasoning": "chain", "reasoning_effort": "high"}))
+        assert "reasoning" not in captured["body"]
+        assert "reasoning_effort" not in captured["body"]
+        # 开启思考 → 保留
+        ai_service.save_ai_config(db, {"thinking": True})
+        asyncio.run(ai_service.chat(db, p, {"model": "m", "messages": [], "reasoning": "chain"}))
+        assert captured["body"].get("reasoning") == "chain"
 
 
 def test_social_search_and_uuid_query(client):

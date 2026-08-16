@@ -841,6 +841,10 @@ async function ai(el) {
         <input type="checkbox" id="ai-enabled" ${cfg.enabled ? 'checked' : ''}>
         <label style="color:var(--text)">启用 AI 服务</label>
       </div>
+      <div style="display:flex;gap:10px;align-items:center;margin-bottom:14px">
+        <input type="checkbox" id="ai-thinking" ${cfg.thinking ? 'checked' : ''}>
+        <label style="color:var(--text)">启用 AI 思考(关闭后转发剥离 reasoning,省 token/降延迟)</label>
+      </div>
       <div class="form-field"><label>API 服务器地址(base_url)</label>
         <input class="inp mono" id="ai-base" value="${esc(cfg.base_url)}" placeholder="https://api.deepseek.com/v1"></div>
       <div class="form-field"><label>API Key(保存后仅显示脱敏)</label>
@@ -876,6 +880,7 @@ async function saveAiCfg() {
   try {
     await api('/ai/config', 'PUT', {
       enabled: $('#ai-enabled').checked,
+      thinking: $('#ai-thinking').checked,
       base_url: $('#ai-base').value.trim(),
       api_key: $('#ai-key').value.trim(),
       model: $('#ai-model').value.trim() || undefined,

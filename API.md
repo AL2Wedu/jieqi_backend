@@ -1297,11 +1297,13 @@ Authorization: Bearer dev_xxx
 
 ### 8.41 GET /v1/admin/ai/config — AI 配置(密钥打码)
 
-**响应(data):** `{ "enabled", "base_url", "model", "api_key"(打码), "configured"(bool) }`
+**响应(data):** `{ "enabled", "base_url", "model", "api_key"(打码), "thinking"(bool), "configured"(bool) }`
 
 ### 8.42 PUT /v1/admin/ai/config — 保存 AI 配置
 
-**请求体:** `{ "enabled": bool, "base_url": str, "api_key": str, "model": str }`(全可选)。
+**请求体:** `{ "enabled": bool, "base_url": str, "api_key": str, "model": str, "thinking": bool }`(全可选)。
+
+- `thinking`(思考模式):默认 `true`;设为 `false` 时,`/v1/ai/chat` 转发会剥离 `reasoning` / `reasoning_effort` / `thinking` 字段(省 token、降延迟)。
 
 **响应(data):** 同 8.41(打码)。
 
