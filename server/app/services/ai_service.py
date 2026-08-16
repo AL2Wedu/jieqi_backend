@@ -24,6 +24,14 @@ AI_FIELD_MAP = {
 }
 
 
+def _normalize_base_url(url: str) -> str:
+    """规范化 base_url:去尾部斜杠;缺协议自动补 https://(防 400 plain HTTP to HTTPS port)。"""
+    url = (url or "").strip().rstrip("/")
+    if url and "://" not in url:
+        url = "https://" + url
+    return url
+
+
 def get_ai_config(db: Session) -> dict:
     cfgs = {
         c.key: c.value
@@ -31,7 +39,7 @@ def get_ai_config(db: Session) -> dict:
     }
     return {
         "enabled": bool(cfgs.get("ai.enabled", False)),
-        "base_url": str(cfgs.get("ai.base_url", "")).rstrip("/"),
+        "base_url": _normalize_base_url(str(cfgs.get("ai.base_url", ""))),
         "api_key": str(cfgs.get("ai.api_key", "")),
         "model": str(cfgs.get("ai.model", "deepseek-chat")),
         # 思考模式:默认开启;关闭时转发剥离 reasoning 字段(省 token/降延迟)
