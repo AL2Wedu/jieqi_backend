@@ -238,3 +238,33 @@ def test_order_guest_locked(client, monkeypatch):
     # 已有活跃点菜会话 → GUEST_BUSY
     r = client.post("/v1/shop/order/start", headers=h).json()
     assert r["code"] == 29001
+
+
+def test_fused_chat_or_start(client, monkeypatch):
+    """融合接口:首次调用(无 session_id)自动创建会话+AI 点单;后续(带 session_id)多轮对话。"""
+    h = _reg(client, "order_fused")
+    _harvest_rice(client, h)
+    # 首次调用:无 session_id → 自动创建会话 + AI 点单
+    _mock_chat(
+        monkeypatch,
+        '{"raw_text": "我想买点水稻", "items": ["<crop_id>"], "total_price": 10}',
+    )
+    r = client.post("/v1/shop/order/chat", json={"message": "你好"}, headers=h).json()
+    assert r["code"] == 0, r
+    d = r["data"]
+    assert d["session_id"]  # 返回 session_id
+    assert d["guest_name"] in ("王奶奶", "陈大厨", "小美")
+    assert d["raw_text"] and d["items"] and d["total_price"] >= 1
+    # 后续调用:带 session_id → 多轮对话
+    _mock_chat(
+        monkeypatch,
+        '{"raw_text": "那来一份吧", "emotion": "happy", "is_complete": false}',
+    )
+    r = client.post(
+        "/v1/shop/order/chat",
+        json={"message": "好的", "session_id": d["session_id"]},
+        headers=h,
+    ).json()
+    assert r["code"] == 0
+    assert r["data"]["emotion"] == "happy" and r["data"]["is_complete"] is False
+    assert r["data"]["status"] == "bargaining"

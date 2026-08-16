@@ -350,6 +350,18 @@ async def start_order(db: Session, player: Player) -> dict:
     }
 
 
+async def chat_or_start_order(db: Session, player: Player, session_id: str | None, message: str) -> dict:
+    """融合接口:首次调用(无 session_id)自动创建会话+AI 点单;后续调用(带 session_id)多轮对话。
+
+    前端只调这一个接口即可完成整个点菜流程:
+    - 无 session_id → 走 start 逻辑(创建会话 + AI 点单),返回含 session_id
+    - 有 session_id → 走 chat 逻辑(多轮对话)
+    """
+    if not session_id:
+        return await start_order(db, player)
+    return await chat_order(db, player, session_id, message)
+
+
 async def chat_order(db: Session, player: Player, session_id: str, message: str) -> dict:
     """多轮对话:保持上下文,AI 返回 {raw_text, emotion, is_complete}。"""
     s = _get_session(db, player, session_id)

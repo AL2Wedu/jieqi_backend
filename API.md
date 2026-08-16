@@ -141,10 +141,11 @@
 | 35 | POST | `/v1/shop/guest/{session_id}/cancel` | 🔐 | 赶客放弃,不成交 |
 | 36 | GET | `/v1/shop/guest/{session_id}` | 🔐 | 会话快照(含消息历史,断线重进用) |
 | 37 | POST | `/v1/shop/order/start` | 🔐 | 开始点菜会话:AI 收到菜种类+价格+提示词+客人名/年龄 → 输出点单 → 回传前端 |
-| 38 | POST | `/v1/shop/order/{session_id}/chat` | 🔐 | 多轮对话(保持上下文)→ AI 返回 {raw_text, emotion, is_complete} |
-| 39 | POST | `/v1/shop/order/{session_id}/confirm` | 🔐 | 玩家确认成交:服务端权威校验 → 扣菜+加金币 |
-| 40 | POST | `/v1/shop/order/{session_id}/cancel` | 🔐 | 取消点菜会话 |
-| 41 | GET | `/v1/shop/order/{session_id}` | 🔐 | 点菜会话快照(含消息历史) |
+| 38 | POST | `/v1/shop/order/chat` | 🔐 | 融合接口:首次调用(无 session_id)自动创建会话+AI 点单;后续(带 session_id)多轮对话 |
+| 39 | POST | `/v1/shop/order/{session_id}/chat` | 🔐 | 多轮对话(保持上下文)→ AI 返回 {raw_text, emotion, is_complete} |
+| 40 | POST | `/v1/shop/order/{session_id}/confirm` | 🔐 | 玩家确认成交:服务端权威校验 → 扣菜+加金币 |
+| 41 | POST | `/v1/shop/order/{session_id}/cancel` | 🔐 | 取消点菜会话 |
+| 42 | GET | `/v1/shop/order/{session_id}` | 🔐 | 点菜会话快照(含消息历史) |
 | 36 | GET | `/v1/social/search?q=&exact=` | 🔐 | 按名字查玩家(排除自己):模糊包含 / 精确匹配(重名全返回) |
 | 37 | GET | `/v1/social/players/{player_id}` | 🔐 | UUID 查询:任意玩家公开资料 + 关系状态 |
 | 38 | GET | `/v1/social/players/{player_id}/farm` | 🔐 | 公开访客模式:任意玩家农场参观(田格数据,只读无副作用) |
@@ -656,6 +657,7 @@ bargaining --cancel--> cancelled
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | POST | `/v1/shop/order/start` | 开始点菜:AI 收到菜种类+价格+提示词+客人名/年龄 → 输出 `{raw_text, items:[crop.id], total_price}` → 回传前端 |
+| POST | `/v1/shop/order/chat` | **融合接口**:body `{message, session_id?}` — 无 session_id 自动创建会话+AI 点单;有 session_id 多轮对话(前端只调这一个) |
 | POST | `/v1/shop/order/{session_id}/chat` | body `{message}` → 多轮对话(保持上下文)→ AI 返回 `{raw_text, emotion, is_complete}` |
 | POST | `/v1/shop/order/{session_id}/confirm` | body `{items:[{crop_id,quantity}], total_price}` → 玩家确认成交 → 服务端权威校验 → 扣菜+加金币 |
 | POST | `/v1/shop/order/{session_id}/cancel` | 取消点菜会话 |

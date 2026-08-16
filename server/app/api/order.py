@@ -13,6 +13,7 @@ router = APIRouter(prefix="/shop/order", tags=["shop-order"])
 
 class ChatPayload(BaseModel):
     message: str
+    session_id: str | None = None  # 首次调用省略 → 自动创建会话+AI 点单;后续带 session_id → 多轮对话
 
 
 class OrderItem(BaseModel):
@@ -32,6 +33,16 @@ async def order_start(
 ):
     """开始点菜会话:AI 收到菜种类+价格+提示词+客人名/年龄 → 输出点单 → 回传前端。"""
     return ok(await order_service.start_order(db, player))
+
+
+@router.post("/chat")
+async def order_chat_or_start(
+    req: ChatPayload,
+    player: Player = Depends(get_current_player),
+    db: Session = Depends(get_db),
+):
+    """融合接口:首次调用(无 session_id)自动创建会话+AI 点单;后续(带 session_id)多轮对话。"""
+    return ok(await order_service.chat_or_start_order(db, player, req.session_id, req.message))
 
 
 @router.post("/{session_id}/chat")
