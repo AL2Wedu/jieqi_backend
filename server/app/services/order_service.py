@@ -36,7 +36,7 @@ _KEYS = (
 )
 _DEFAULTS = {
     "order.enabled": True,
-    "order.cooldown_seconds": 30,
+    "order.cooldown_seconds": 10,  # 客人走后 10-20s 再来（前端等待，冷却须 ≤ 10s）
     "order.max_turns": 4,  # 极限 4 轮
     "order.context_messages": 12,
     "order.json_retries": 1,
@@ -341,7 +341,10 @@ async def start_order(db: Session, player: Player) -> dict:
         .first()
     )
     if active:
-        raise AppError("GUEST_BUSY", "已有客人正在点菜,先完成这单", code=29001)
+        raise AppError(
+            "GUEST_BUSY", "已有客人正在点菜,先完成这单", code=29001,
+            extra={"session_id": str(active.id)},  # 客户端据此恢复会话
+        )
     # 客人:优先用 encounter 锁定的;无则随机
     guest = guest_service._guest_by_key(player.guest_encounter_key) if player.guest_encounter_key else None
     if guest is None:
