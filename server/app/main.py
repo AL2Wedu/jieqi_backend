@@ -60,6 +60,45 @@ def _ensure_player_world_columns() -> None:
                 conn.execute(text("ALTER TABLE ai_guest_sessions ADD COLUMN order_total INTEGER"))
             if "is_right" not in cols:
                 conn.execute(text("ALTER TABLE ai_guest_sessions ADD COLUMN is_right BOOLEAN"))
+            # 旧表 crop_id 为 NOT NULL,点菜模式需 NULL:SQLite 无法 ALTER 改约束 → 重建表
+            crop_nullable = next(
+                (c["nullable"] for c in inspect(engine).get_columns("ai_guest_sessions") if c["name"] == "crop_id"),
+                True,
+            )
+            if not crop_nullable:
+                conn.execute(text(
+                    "ALTER TABLE ai_guest_sessions RENAME TO ai_guest_sessions_old"
+                ))
+                conn.execute(text(
+                    "CREATE TABLE ai_guest_sessions ("
+                    "id CHAR(32) NOT NULL PRIMARY KEY, "
+                    "player_id CHAR(32) NOT NULL, "
+                    "crop_id CHAR(32), "
+                    "guest_key VARCHAR(32) NOT NULL, "
+                    "guest_name VARCHAR(32) NOT NULL, "
+                    "mode VARCHAR(16) DEFAULT 'bargain', "
+                    "status VARCHAR(16) NOT NULL, "
+                    "base_price INTEGER NOT NULL DEFAULT 0, "
+                    "wilted_ratio FLOAT NOT NULL DEFAULT 0.2, "
+                    "offer INTEGER NOT NULL DEFAULT 0, "
+                    "target_min INTEGER NOT NULL DEFAULT 0, "
+                    "target_max INTEGER NOT NULL DEFAULT 0, "
+                    "turns INTEGER NOT NULL DEFAULT 0, "
+                    "last_mood VARCHAR(16) NOT NULL DEFAULT 'plain', "
+                    "order_items JSON, order_total INTEGER, is_right BOOLEAN, "
+                    "created_at DATETIME NOT NULL, updated_at DATETIME NOT NULL, finished_at DATETIME"
+                    ")"
+                ))
+                conn.execute(text(
+                    "INSERT INTO ai_guest_sessions (id, player_id, crop_id, guest_key, guest_name, mode, status, "
+                    "base_price, wilted_ratio, offer, target_min, target_max, turns, last_mood, "
+                    "order_items, order_total, is_right, created_at, updated_at, finished_at) "
+                    "SELECT id, player_id, crop_id, guest_key, guest_name, COALESCE(mode,'bargain'), status, "
+                    "base_price, wilted_ratio, offer, target_min, target_max, turns, last_mood, "
+                    "order_items, order_total, is_right, created_at, updated_at, finished_at "
+                    "FROM ai_guest_sessions_old"
+                ))
+                conn.execute(text("DROP TABLE ai_guest_sessions_old"))
     except Exception as e:  # noqa: BLE001
         logger.warning("ai_guest_sessions 点菜列迁移跳过: %s", e)
     try:
