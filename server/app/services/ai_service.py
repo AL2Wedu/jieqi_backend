@@ -119,7 +119,9 @@ async def chat(db: Session, player: Player, payload: dict) -> dict:
         "Content-Type": "application/json",
     }
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
+        # 超时 45s：慢的 AI 调用要留足时间（前端 guest_chat 超时 60s 罩得住），
+        # 上游彻底挂起时兜底回复也能在 45s 内到位
+        async with httpx.AsyncClient(timeout=45) as client:
             resp = await client.post(
                 f"{cfg['base_url']}/chat/completions", json=body, headers=headers
             )

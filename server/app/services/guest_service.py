@@ -8,10 +8,13 @@
 - 成本控制:单活跃会话 / start 冷却 / max_turns / 历史截断 / 用量进 ai_usage
 """
 import json
+import logging
 import random
 import re
 from datetime import datetime, timezone
 from pathlib import Path
+
+logger = logging.getLogger("jieqi")
 
 from sqlalchemy.orm import Session
 
@@ -333,8 +336,9 @@ async def _ask(db: Session, player: Player, s: AiGuestSession, crop: Crop, user_
             )
             text = raw["choices"][0]["message"]["content"]
             return _validate_reply(_parse_reply(text), s, crop, cfg)
-        except AppError:
+        except AppError as e:
             # AI 未启用/未配置/上游异常 → 兜底话术(会话不坏,客人继续等)
+            logger.warning("[guest] AI 调用失败(第%d次): %s", attempt + 1, e)
             if attempt < retries:
                 continue
             return _fallback_reply(
@@ -344,7 +348,8 @@ async def _ask(db: Session, player: Player, s: AiGuestSession, crop: Crop, user_
                 "plain",
                 s.offer or round((s.target_min + s.target_max) / 2),
             )
-        except (KeyError, ValueError, TypeError, IndexError):
+        except (KeyError, ValueError, TypeError, IndexError) as e:
+            logger.warning("[guest] AI 响应解析失败(第%d次): %s", attempt + 1, e)
             if attempt < retries:
                 continue
             return _fallback_reply(
